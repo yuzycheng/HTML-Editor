@@ -161,6 +161,16 @@ async function init() {
         },
       });
       console.log('[hce] collab connected');
+      // [ADDITION] Bridge Yjs UndoManager events into iframe so its actionLog
+      // can stay in lockstep with the real Yjs stack (no more guess-timing).
+      try {
+        state.collab?.onYjsStackAdded?.((event) => {
+          sendToIframe({ cmd: 'yjs-stack-added', isRedo: event.type === 'redo' });
+        });
+        state.collab?.onYjsStackPopped?.((event) => {
+          sendToIframe({ cmd: 'yjs-stack-popped', isRedo: event.type === 'redo' });
+        });
+      } catch (e) {}
     } catch (err) {
       console.warn('[hce] collab disabled (single-user mode):', err.message);
     }
@@ -520,6 +530,11 @@ function handleIframeMessage(e) {
 
   if (d.type === 'request-undo') state.collab?.undo?.();
   if (d.type === 'request-redo') state.collab?.redo?.();
+
+  // [ADDITION] Iframe asks us to end the current Yjs capture window —
+  // sent after every style change so style ≠ text are not merged into
+  // the same undo step.
+  if (d.type === 'request-stop-capturing') state.collab?.stopCapturing?.();
 
   if (d.type === 'iframe-mousedown') {
     document.getElementById('export-menu')?.classList.remove('show');

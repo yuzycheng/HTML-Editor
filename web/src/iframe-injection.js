@@ -198,48 +198,11 @@ export function buildIframeScript() {
     }
   });
 
-  // ⌘Z / ⌘⇧Z forwarding — keyboard events inside this sandboxed iframe
-  // don't bubble to the parent, so the browser's default contenteditable
-  // undo runs and our Yjs UndoManager never fires. Intercept and ask the
-  // parent to undo/redo through the collab provider.
-  function forwardUndo(isRedo) {
-    // Drains through the chronological actionLog/redoLog so both ⌘Z and
-    // beforeinput historyUndo end up doing the same right thing.
-    for (var k in lastLocalInputAt) delete lastLocalInputAt[k];
-    if (isRedo) {
-      var top = redoLog.pop();
-      if (!top) return;
-      if (top.type === 'style') {
-        if (redoStyleHistory()) actionLog.push(top); else redoLog.push(top);
-      } else {
-        window.parent.postMessage({ type: 'request-redo' }, '*');
-        actionLog.push(top);
-      }
-    } else {
-      var top = actionLog.pop();
-      if (!top) return;
-      if (top.type === 'style') {
-        if (undoStyleHistory()) redoLog.push(top); else actionLog.push(top);
-      } else {
-        window.parent.postMessage({ type: 'request-undo' }, '*');
-        redoLog.push(top);
-      }
-    }
-  }
-  document.addEventListener('keydown', function(e) {
-    var mod = e.metaKey || e.ctrlKey;
-    if (!mod) return;
-    if (e.key && e.key.toLowerCase() === 'z') {
-      e.preventDefault();
-      forwardUndo(!!e.shiftKey);
-    }
-  });
-  // beforeinput catches the undo intent at a deeper level than keydown;
-  // some browser configurations skip the keydown path for historyUndo.
-  document.addEventListener('beforeinput', function(e) {
-    if (e.inputType === 'historyUndo') { e.preventDefault(); forwardUndo(false); }
-    if (e.inputType === 'historyRedo') { e.preventDefault(); forwardUndo(true); }
-  });
+  // [REMOVED in undo-redesign]
+  //   Old `forwardUndo` + bubble-phase keydown + beforeinput historyUndo
+  //   handlers used to all fire on a single Cmd+Z, causing the SAME action
+  //   to be popped TWICE. The new unified handler below (capture-phase
+  //   keydown only, with dedupe guard) replaces all three.
 
   // ─── Pick the best ancestor for non-text targets ───
   function pickTarget(node) {
@@ -547,6 +510,23 @@ export function buildIframeScript() {
 
     if (d.cmd === 'set-mode') applyMode(d.mode);
 
+    // [ADDITION] Parent broadcasts Yjs UndoManager stack events so the
+    // iframe-side actionLog can stay in lockstep with the real Yjs stack.
+    // Each stack-item-added (when not a redo) = one new yjs undo step.
+    // We push a synthetic 'text' entry so Cmd+Z handler pops it and
+    // forwards undo correctly.
+    if (d.cmd === 'yjs-stack-added' && !d.isRedo) {
+      // Avoid double-log: if logTextAction already pushed a 'text'
+      // entry within the merge window, just refresh its timestamp.
+      var last = actionLog[actionLog.length - 1];
+      if (last && last.type === 'text' && (Date.now() - last.ts) < TEXT_MERGE_WINDOW_MS) {
+        last.ts = Date.now();
+      } else {
+        actionLog.push({ type: 'text', ts: Date.now() });
+        redoLog.length = 0;
+      }
+    }
+
     if (d.cmd === 'mark-commented') {
       var el = document.querySelector('[data-block-id="' + d.id + '"]');
       if (el) el.setAttribute('data-commented', '1');
@@ -806,18 +786,30 @@ export function buildIframeScript() {
   function logStyleAction() {
     actionLog.push({ type: 'style', ts: Date.now() });
     redoLog.length = 0;
+    // [FIX] Ask Yjs to end its current capture window so the NEXT text
+    // edit (within Yjs's 150ms captureTimeout) doesn't get merged into
+    // the same undo step as a previous text edit before this style change.
+    try {
+      window.parent.postMessage({ type: 'request-stop-capturing' }, '*');
+    } catch (e) {}
   }
   // Expose for the style commit path to use.
   window.__hceLogStyleAction = logStyleAction;
 
   // Unified ⌘Z / ⌘⇧Z handler — peels the top of the chronological log.
-  document.addEventListener('keydown', function(e) {
-    var meta = e.metaKey || e.ctrlKey;
-    if (!meta || !e.key || e.key.toLowerCase() !== 'z') return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    var isRedo = e.shiftKey;
-    // Reset the typing gate so any incoming text patch from the undo lands.
+  // [FIX] Dedupe guard: if same keydown fires twice in rapid succession
+  // (older versions had bubble + capture + beforeinput all firing for
+  // a single Cmd+Z), only the first handles. Prevents double-undo.
+  var __lastUndoTs = 0;
+  function __handleUndo(isRedo) {
+    var now = Date.now();
+    if (now - __lastUndoTs < 60) return; // already handled this keystroke
+    __lastUndoTs = now;
+    // [FIX] Flush any pending style changes BEFORE deciding what to undo —
+    // user might have just dragged a slider and pressed Cmd+Z immediately,
+    // we want that slider drag committed first so it can be undone.
+    if (typeof commitStyleChange === 'function') commitStyleChange();
+    // Reset typing gate so any incoming text patch from the undo lands.
     for (var k in lastLocalInputAt) delete lastLocalInputAt[k];
 
     if (isRedo) {
@@ -825,7 +817,7 @@ export function buildIframeScript() {
       if (!top) return;
       if (top.type === 'style') {
         if (redoStyleHistory()) actionLog.push(top);
-        else redoLog.push(top);   // failed, put back
+        else redoLog.push(top);
       } else {
         window.parent.postMessage({ type: 'request-redo' }, '*');
         actionLog.push(top);
@@ -841,6 +833,21 @@ export function buildIframeScript() {
         redoLog.push(top);
       }
     }
+  }
+  document.addEventListener('keydown', function(e) {
+    var meta = e.metaKey || e.ctrlKey;
+    if (!meta || !e.key || e.key.toLowerCase() !== 'z') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    __handleUndo(!!e.shiftKey);
+  }, true);
+  // Belt-and-suspenders: some browsers fire beforeinput historyUndo
+  // even when keydown is preventDefault'd. Dedupe via __lastUndoTs.
+  document.addEventListener('beforeinput', function(e) {
+    if (e.inputType !== 'historyUndo' && e.inputType !== 'historyRedo') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    __handleUndo(e.inputType === 'historyRedo');
   }, true);
   function rgbToHex(c) {
     if (!c) return '#000000';

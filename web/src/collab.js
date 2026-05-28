@@ -288,6 +288,23 @@ export async function connectCollab(state, handlers) {
     redo() { undoMgr.redo(); },
     canUndo() { return undoMgr.canUndo(); },
     canRedo() { return undoMgr.canRedo(); },
+    // [ADDITION] Forcibly end the current capture window so the next
+    // local edit becomes its own undo step (used after style changes).
+    stopCapturing() { undoMgr.stopCapturing(); },
+    // [ADDITION] Subscribe to stack-item-added — iframe uses this as the
+    // authoritative "a Yjs action just happened" signal so its own
+    // actionLog can stay in sync with the real Yjs stack.
+    onYjsStackAdded(cb) {
+      undoMgr.on('stack-item-added', (event) => {
+        // event.type is 'undo' (new action) or 'redo' (after a redo)
+        cb({ type: event.type });
+      });
+    },
+    onYjsStackPopped(cb) {
+      undoMgr.on('stack-item-popped', (event) => {
+        cb({ type: event.type });
+      });
+    },
     onStackChange(cb) {
       undoMgr.on('stack-item-added', cb);
       undoMgr.on('stack-item-popped', cb);
