@@ -199,7 +199,7 @@ export function buildIframeScript() {
   });
 
   // [REMOVED in undo-redesign]
-  //   Old `forwardUndo` + bubble-phase keydown + beforeinput historyUndo
+  //   Old forwardUndo (bubble-phase keydown + beforeinput historyUndo)
   //   handlers used to all fire on a single Cmd+Z, causing the SAME action
   //   to be popped TWICE. The new unified handler below (capture-phase
   //   keydown only, with dedupe guard) replaces all three.
