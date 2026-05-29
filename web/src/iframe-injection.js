@@ -759,7 +759,7 @@ export function buildIframeScript() {
   // ⌘Z / ⌘⇧Z — just forward to the parent. The parent (room.js) owns the
   // chronological undo log because it's the only place that sees every kind
   // of action (text / structural / comment / style). The parent decides
-  // whether to call its own collab.undo() or to send us an `undo-style` cmd.
+  // whether to call its own collab.undo() or to send us an undo-style cmd.
   function forwardUndo(isRedo) {
     for (var k in lastLocalInputAt) delete lastLocalInputAt[k];
     window.parent.postMessage({
