@@ -180,8 +180,6 @@ export function buildIframeScript() {
         id: id,
         text: el.textContent
       }, '*');
-      // Log this as a 'text' action in the chronological timeline.
-      if (typeof logTextAction === 'function') logTextAction();
     }, ms);
   });
 
@@ -198,11 +196,19 @@ export function buildIframeScript() {
     }
   });
 
-  // [REMOVED in undo-redesign]
-  //   Old forwardUndo (bubble-phase keydown + beforeinput historyUndo)
-  //   handlers used to all fire on a single Cmd+Z, causing the SAME action
-  //   to be popped TWICE. The new unified handler below (capture-phase
-  //   keydown only, with dedupe guard) replaces all three.
+  // Thin forwarder used by the beforeinput historyUndo fallback (some
+  // browsers fire historyUndo without going through keydown). The main
+  // ⌘Z / ⌘⇧Z path is the capture-phase keydown handler defined later.
+  function forwardUndo(isRedo) {
+    for (var k in lastLocalInputAt) delete lastLocalInputAt[k];
+    window.parent.postMessage({
+      type: isRedo ? 'request-redo' : 'request-undo'
+    }, '*');
+  }
+  document.addEventListener('beforeinput', function(e) {
+    if (e.inputType === 'historyUndo') { e.preventDefault(); forwardUndo(false); }
+    if (e.inputType === 'historyRedo') { e.preventDefault(); forwardUndo(true); }
+  });
 
   // ─── Pick the best ancestor for non-text targets ───
   function pickTarget(node) {
@@ -510,22 +516,8 @@ export function buildIframeScript() {
 
     if (d.cmd === 'set-mode') applyMode(d.mode);
 
-    // [ADDITION] Parent broadcasts Yjs UndoManager stack events so the
-    // iframe-side actionLog can stay in lockstep with the real Yjs stack.
-    // Each stack-item-added (when not a redo) = one new yjs undo step.
-    // We push a synthetic 'text' entry so Cmd+Z handler pops it and
-    // forwards undo correctly.
-    if (d.cmd === 'yjs-stack-added' && !d.isRedo) {
-      // Avoid double-log: if logTextAction already pushed a 'text'
-      // entry within the merge window, just refresh its timestamp.
-      var last = actionLog[actionLog.length - 1];
-      if (last && last.type === 'text' && (Date.now() - last.ts) < TEXT_MERGE_WINDOW_MS) {
-        last.ts = Date.now();
-      } else {
-        actionLog.push({ type: 'text', ts: Date.now() });
-        redoLog.length = 0;
-      }
-    }
+    if (d.cmd === 'undo-style') { undoStyleHistory(); }
+    if (d.cmd === 'redo-style') { redoStyleHistory(); }
 
     if (d.cmd === 'mark-commented') {
       var el = document.querySelector('[data-block-id="' + d.id + '"]');
@@ -748,8 +740,8 @@ export function buildIframeScript() {
     }
     preChangeSnap = null;
     preChangeTarget = null;
-    // Tell the chronological log a style action just happened.
-    if (typeof logStyleAction === 'function') logStyleAction();
+    // Notify parent — it owns the chronological undo log.
+    window.parent.postMessage({ type: 'style-committed' }, '*');
   }
   function undoStyleHistory() {
     commitStyleChange(); // 提交任何 pending
@@ -764,90 +756,30 @@ export function buildIframeScript() {
     applyStyleSnap(styleHistory[styleHistoryPtr].after);
     return true;
   }
-  // ─── Chronological action log (text + style merged) ───
-  //
-  // Two separate undo stacks (style vs Yjs text) used to race each other:
-  // ⌘Z always tried style first, so an OLD color change would pop before a
-  // RECENT text edit. Now both kinds of edits are appended to one timeline
-  // and ⌘Z pops the actual most-recent one.
-  var actionLog = [];   // entries: { type: 'style'|'text', ts: number }
-  var redoLog   = [];
-  var TEXT_MERGE_WINDOW_MS = 220;   // a touch wider than Yjs captureTimeout (150)
-
-  function logTextAction() {
-    var last = actionLog[actionLog.length - 1];
-    if (last && last.type === 'text' && (Date.now() - last.ts) < TEXT_MERGE_WINDOW_MS) {
-      last.ts = Date.now();   // merge into the running text burst
-    } else {
-      actionLog.push({ type: 'text', ts: Date.now() });
-    }
-    redoLog.length = 0;
-  }
-  function logStyleAction() {
-    actionLog.push({ type: 'style', ts: Date.now() });
-    redoLog.length = 0;
-    // [FIX] Ask Yjs to end its current capture window so the NEXT text
-    // edit (within Yjs's 150ms captureTimeout) doesn't get merged into
-    // the same undo step as a previous text edit before this style change.
-    try {
-      window.parent.postMessage({ type: 'request-stop-capturing' }, '*');
-    } catch (e) {}
-  }
-  // Expose for the style commit path to use.
-  window.__hceLogStyleAction = logStyleAction;
-
-  // Unified ⌘Z / ⌘⇧Z handler — peels the top of the chronological log.
-  // [FIX] Dedupe guard: if same keydown fires twice in rapid succession
-  // (older versions had bubble + capture + beforeinput all firing for
-  // a single Cmd+Z), only the first handles. Prevents double-undo.
-  var __lastUndoTs = 0;
-  function __handleUndo(isRedo) {
-    var now = Date.now();
-    if (now - __lastUndoTs < 60) return; // already handled this keystroke
-    __lastUndoTs = now;
-    // [FIX] Flush any pending style changes BEFORE deciding what to undo —
-    // user might have just dragged a slider and pressed Cmd+Z immediately,
-    // we want that slider drag committed first so it can be undone.
-    if (typeof commitStyleChange === 'function') commitStyleChange();
-    // Reset typing gate so any incoming text patch from the undo lands.
+  // ⌘Z / ⌘⇧Z — just forward to the parent. The parent (room.js) owns the
+  // chronological undo log because it's the only place that sees every kind
+  // of action (text / structural / comment / style). The parent decides
+  // whether to call its own collab.undo() or to send us an `undo-style` cmd.
+  function forwardUndo(isRedo) {
     for (var k in lastLocalInputAt) delete lastLocalInputAt[k];
-
-    if (isRedo) {
-      var top = redoLog.pop();
-      if (!top) return;
-      if (top.type === 'style') {
-        if (redoStyleHistory()) actionLog.push(top);
-        else redoLog.push(top);
-      } else {
-        window.parent.postMessage({ type: 'request-redo' }, '*');
-        actionLog.push(top);
-      }
-    } else {
-      var top = actionLog.pop();
-      if (!top) return;
-      if (top.type === 'style') {
-        if (undoStyleHistory()) redoLog.push(top);
-        else actionLog.push(top);
-      } else {
-        window.parent.postMessage({ type: 'request-undo' }, '*');
-        redoLog.push(top);
-      }
-    }
+    window.parent.postMessage({
+      type: isRedo ? 'request-redo' : 'request-undo'
+    }, '*');
   }
   document.addEventListener('keydown', function(e) {
     var meta = e.metaKey || e.ctrlKey;
     if (!meta || !e.key || e.key.toLowerCase() !== 'z') return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    __handleUndo(!!e.shiftKey);
+    forwardUndo(!!e.shiftKey);
   }, true);
   // Belt-and-suspenders: some browsers fire beforeinput historyUndo
-  // even when keydown is preventDefault'd. Dedupe via __lastUndoTs.
+  // even when the keydown is preventDefault'd above.
   document.addEventListener('beforeinput', function(e) {
     if (e.inputType !== 'historyUndo' && e.inputType !== 'historyRedo') return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    __handleUndo(e.inputType === 'historyRedo');
+    forwardUndo(e.inputType === 'historyRedo');
   }, true);
   function rgbToHex(c) {
     if (!c) return '#000000';

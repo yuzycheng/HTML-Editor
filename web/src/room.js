@@ -120,8 +120,20 @@ async function init() {
   const parsed = parseHTML(initialHTML);
   state.skeleton = parsed.skeleton;
   state.blocks = parsed.blocks;
-  renderIframe();
-  renderComments();
+
+  // If we have the file locally (uploader's tab), render immediately.
+  // Otherwise (joined a shared room link) DEFER the initial render until
+  // collab connects — that way late joiners see the actual document, not
+  // a flash of DEMO content before it's replaced.
+  const hasLocalFile = !!sessionStorage.getItem('hce-init-html-' + state.roomId);
+  let initialRendered = false;
+  function doInitialRender() {
+    if (initialRendered) return;
+    initialRendered = true;
+    renderIframe();
+    renderComments();
+  }
+  if (hasLocalFile) doInitialRender();
 
   window.addEventListener('message', handleIframeMessage);
 
@@ -151,9 +163,16 @@ async function init() {
           document.getElementById('sync-label').textContent = n > 1 ? 'Live' : 'Solo';
         },
         onSkeletonChanged: () => {
-          // Try surgical patch first; only full-reload as last resort.
-          // The patch preserves scroll, contenteditable, and iframe state —
-          // so undo/redo no longer flashes white or scrolls to top.
+          if (!initialRendered) {
+            // Late joiner first render — go straight to full render so the
+            // user sees the actual room contents, not a flash of DEMO.
+            initialRendered = true;
+            renderIframe();
+            renderComments();
+            markSaved();
+            return;
+          }
+          // Subsequent skeleton changes: try surgical patch first.
           const patched = applyStructuralPatch();
           if (!patched) renderIframe();
           renderComments();
@@ -161,20 +180,14 @@ async function init() {
         },
       });
       console.log('[hce] collab connected');
-      // [ADDITION] Bridge Yjs UndoManager events into iframe so its actionLog
-      // can stay in lockstep with the real Yjs stack (no more guess-timing).
-      try {
-        state.collab?.onYjsStackAdded?.((event) => {
-          sendToIframe({ cmd: 'yjs-stack-added', isRedo: event.type === 'redo' });
-        });
-        state.collab?.onYjsStackPopped?.((event) => {
-          sendToIframe({ cmd: 'yjs-stack-popped', isRedo: event.type === 'redo' });
-        });
-      } catch (e) {}
     } catch (err) {
       console.warn('[hce] collab disabled (single-user mode):', err.message);
     }
   }
+
+  // Safety net — if collab failed (no server) or the room was empty, we
+  // never rendered. Fall back to whatever we parsed locally (DEMO or file).
+  doInitialRender();
 
   // Keyboard: ⌘Z / ⌘⇧Z
   window.addEventListener('keydown', (e) => {
@@ -184,7 +197,7 @@ async function init() {
     const tgt = e.target;
     if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA')) return;
     e.preventDefault();
-    if (e.shiftKey) doRedo(); else doUndo();
+    if (e.shiftKey) performRedo(); else performUndo();
   });
 
   // Outside click closes export / share menus
@@ -230,6 +243,7 @@ function replaceDocument(file) {
     renderIframe();
     renderComments();
     state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
+    logYjsAction('structural');
     toast('Replaced with ' + file.name);
   };
   reader.readAsText(file);
@@ -492,8 +506,13 @@ function handleIframeMessage(e) {
     if (block && block.text !== d.text) {
       block.text = d.text;
       state.collab?.onLocalBlockEdit?.(d.id, d.text);
+      logYjsAction('text');
       markSaving();
     }
+  }
+
+  if (d.type === 'style-committed') {
+    logStyleAction();
   }
 
   if (d.type === 'comment-toggle-select') {
@@ -528,8 +547,8 @@ function handleIframeMessage(e) {
     rebuildingIframe = false;
   }
 
-  if (d.type === 'request-undo') state.collab?.undo?.();
-  if (d.type === 'request-redo') state.collab?.redo?.();
+  if (d.type === 'request-undo') performUndo();
+  if (d.type === 'request-redo') performRedo();
 
   // [ADDITION] Iframe asks us to end the current Yjs capture window —
   // sent after every style change so style ≠ text are not merged into
@@ -665,6 +684,7 @@ window.saveComposer = function () {
   };
   state.comments[id] = comment;
   state.collab?.onLocalCommentAdd?.(comment);
+  logYjsAction('comment');
   markSaving();
 
   closeComposer();
@@ -677,6 +697,7 @@ window.deleteComment = function (id) {
   if (!c) return;
   delete state.comments[id];
   state.collab?.onLocalCommentDelete?.(id);
+  logYjsAction('comment');
   renderComments();
 };
 
@@ -770,6 +791,7 @@ function deleteColumn(cellId) {
   removedIds.forEach(id => sendToIframe({ cmd: 'remove-element', id }));
 
   state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
+  logYjsAction('structural');
   renderComments();
   markSaving();
   toast('Column removed');
@@ -786,6 +808,7 @@ function duplicateColumn(cellId) {
     sendToIframe({ cmd: 'insert-after', afterId: ins.afterId, html: ins.html });
   });
   state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
+  logYjsAction('structural');
   markSaving();
   toast('Column duplicated');
 }
@@ -806,6 +829,7 @@ function duplicateBlock(rawId) {
     html: result.clonedHTML,
   });
   state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
+  logYjsAction('structural');
   markSaving();
   toast('Duplicated');
 }
@@ -834,6 +858,7 @@ function deleteBlock(rawId) {
 
   // Sync skeleton over collab if we have it
   state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
+  logYjsAction('structural');
 
   renderComments();
   toast('Removed');
@@ -910,9 +935,59 @@ window.downloadExportMd = function () {
   toast('Downloaded ' + name);
 };
 
-// ─── Undo / redo (keyboard only) ───────────────
-window.doUndo = function () { state.collab?.undo?.(); };
-window.doRedo = function () { state.collab?.redo?.(); };
+// ─── Undo / redo — chronological log of ALL local actions ─────────────
+//
+//   undoStack stores one entry per atomic user action: text edit,
+//   structural change (delete/duplicate/replace), comment add/delete, or
+//   in-iframe style change. ⌘Z pops the top and dispatches:
+//     - 'style' → asks the iframe to undo its style-history stack
+//     - everything else → delegates to Yjs UndoManager via state.collab
+//   Empty stack is a no-op (the page DOES NOT go blank).
+//   This is per-user — collaborators only undo their own changes.
+const undoStack = [];
+const redoStack = [];
+const ACTION_MERGE_WINDOW = 220;   // collapse rapid-fire text edits
+
+function logYjsAction(subType) {
+  const last = undoStack[undoStack.length - 1];
+  // Only merge rapid consecutive text edits — every structural / comment
+  // action stays as its own entry.
+  if (subType === 'text' && last && last.type === 'yjs' && last.subType === 'text'
+      && Date.now() - last.ts < ACTION_MERGE_WINDOW) {
+    last.ts = Date.now();
+    redoStack.length = 0;
+    return;
+  }
+  undoStack.push({ type: 'yjs', subType, ts: Date.now() });
+  redoStack.length = 0;
+}
+function logStyleAction() {
+  undoStack.push({ type: 'style', ts: Date.now() });
+  redoStack.length = 0;
+}
+function performUndo() {
+  if (!undoStack.length) return;        // nothing to undo — stay put
+  const top = undoStack.pop();
+  if (top.type === 'style') {
+    sendToIframe({ cmd: 'undo-style' });
+  } else {
+    state.collab?.undo?.();
+  }
+  redoStack.push(top);
+}
+function performRedo() {
+  if (!redoStack.length) return;
+  const top = redoStack.pop();
+  if (top.type === 'style') {
+    sendToIframe({ cmd: 'redo-style' });
+  } else {
+    state.collab?.redo?.();
+  }
+  undoStack.push(top);
+}
+
+window.doUndo = function () { performUndo(); };
+window.doRedo = function () { performRedo(); };
 
 // ─── Save indicator ─────────────────────────────
 let saveStateTimer;
