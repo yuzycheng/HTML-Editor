@@ -693,6 +693,21 @@ export function buildIframeScript() {
   var styleTarget = null;
   var hideStylePanel; // forward decl
 
+  // ─── Target kind + which color property the panel edits ───
+  //   Text leaf  → font color (the "color" property).
+  //   Shape/box  → fill (background-color) or border (border-color).
+  var styleTargetIsText = true;
+  var styleColorMode = 'fill';            // 'fill' | 'border' (shape targets)
+  function activeColorProp() {
+    if (styleTargetIsText) return 'color';
+    return styleColorMode === 'border' ? 'borderColor' : 'backgroundColor';
+  }
+  function currentTargetColorHex() {
+    if (!styleTarget) return '#000000';
+    return rgbToHex(getComputedStyle(styleTarget)[activeColorProp()]);
+  }
+  function origColorKey() { return '__hceOrig_' + activeColorProp(); }
+
   // ─── 样式 Undo / Redo 栈 ───
   // 独立于 Yjs UndoManager（只追踪文字）。
   // Cmd+Z 优先撤销样式；样式栈空了再 fall through 到 Yjs（撤销文字）。
@@ -845,8 +860,6 @@ export function buildIframeScript() {
       'cursor:pointer;padding:0;position:relative;transition:transform 80ms,box-shadow 80ms;flex-shrink:0;}',
       '#__hce-style-panel .sw:hover{transform:scale(1.12);box-shadow:0 2px 6px rgba(0,0,0,.12);z-index:1;}',
       '#__hce-style-panel .sw.on{outline:2px solid #1a1a1a;outline-offset:2px;}',
-      '#__hce-style-panel .sw.original::after{content:"";position:absolute;bottom:-4px;left:50%;',
-      'transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:#1a1a1a;}',
       // Recent swatch × delete on hover
       '#__hce-style-panel .recent .sw .x{position:absolute;top:-5px;right:-5px;width:13px;height:13px;',
       'background:#1a1a1a;color:#fff;border-radius:50%;border:none;cursor:pointer;font-size:9px;',
@@ -860,8 +873,29 @@ export function buildIframeScript() {
       '#__hce-style-panel .num-input::-webkit-outer-spin-button,',
       '#__hce-style-panel .num-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}',
       '#__hce-style-panel .num-input:focus{outline:none;border-color:#1a1a1a;box-shadow:0 0 0 2px rgba(26,26,26,.06);}',
-      // Save-to-recent button under picker
-      '#__hce-style-panel .save-row{display:flex;justify-content:flex-end;}',
+      // Save-to-recent button under picker + hex input on the left
+      '#__hce-style-panel .save-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}',
+      '#__hce-style-panel .hex-wrap{display:flex;align-items:center;gap:4px;}',
+      '#__hce-style-panel .hex-hash{color:#a8a29e;font:11px ui-monospace,SFMono-Regular,monospace;}',
+      '#__hce-style-panel .hex-input{width:64px;height:24px;padding:0 6px;background:#fafaf9;',
+      'border:1px solid #e7e5e4;border-radius:5px;font:11px ui-monospace,SFMono-Regular,monospace;',
+      'color:#1a1a1a;text-transform:uppercase;letter-spacing:.02em;}',
+      '#__hce-style-panel .hex-input:focus{outline:none;border-color:#1a1a1a;box-shadow:0 0 0 2px rgba(26,26,26,.06);}',
+      // Target breadcrumb (kind + parent-select) in color row head
+      '#__hce-style-panel .sp-kind{display:flex;align-items:center;gap:5px;font-size:10px;color:#a8a29e;',
+      'letter-spacing:.04em;text-transform:uppercase;font-weight:600;}',
+      '#__hce-style-panel .sp-kind .up{background:#fafaf9;border:1px solid #e7e5e4;border-radius:4px;',
+      'cursor:pointer;color:#737373;font-size:11px;line-height:1;padding:2px 5px;}',
+      '#__hce-style-panel .sp-kind .up:hover{background:#f0efed;color:#1a1a1a;}',
+      // Fill / Border toggle (shape targets only)
+      '#__hce-style-panel .fillrow{display:grid;grid-template-columns:repeat(2,1fr);gap:4px;margin-bottom:8px;}',
+      '#__hce-style-panel .fillrow button{background:#fafaf9;border:1px solid #e7e5e4;color:#44403c;',
+      'padding:5px 0;border-radius:6px;cursor:pointer;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;}',
+      '#__hce-style-panel .fillrow button:hover{background:#f0efed;color:#1a1a1a;}',
+      '#__hce-style-panel .fillrow button.on{background:#1a1a1a;color:#fff;border-color:#1a1a1a;}',
+      // Hide text-only controls when a shape/container is selected
+      '#__hce-style-panel[data-kind="shape"] .text-only{display:none;}',
+      '#__hce-style-panel[data-kind="text"] .shape-only{display:none;}',
       '#__hce-style-panel .save-btn{background:#1a1a1a;color:#fff;border:none;border-radius:5px;',
       'padding:5px 11px;font-size:11px;font-weight:500;cursor:pointer;display:inline-flex;',
       'align-items:center;gap:4px;}',
@@ -877,7 +911,7 @@ export function buildIframeScript() {
       // HSV picker — drag-only
       '#__hce-style-panel .picker{display:none;flex-direction:column;gap:8px;padding-top:8px;}',
       '#__hce-style-panel .picker.show{display:flex;}',
-      '#__hce-style-panel .sv{position:relative;width:100%;height:120px;border-radius:8px;cursor:crosshair;',
+      '#__hce-style-panel .sv{position:relative;width:100%;height:84px;border-radius:8px;cursor:crosshair;',
       'background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,transparent),#f00;',
       'overflow:hidden;border:1px solid #e7e5e4;}',
       '#__hce-style-panel .sv-thumb{position:absolute;width:14px;height:14px;border-radius:50%;',
@@ -910,8 +944,8 @@ export function buildIframeScript() {
         '<div class="sp-head"><span class="ttl">Style</span><button class="close" title="Close">×</button></div>'
       + '<div class="sp-body">'
 
-      // Format: B / I / U
-      + '<div class="row">'
+      // Format: B / I / U  (text targets only)
+      + '<div class="row text-only">'
         + '<div class="biu-row">'
           + '<button class="biu-btn" data-prop="fontWeight" title="Bold">B</button>'
           + '<button class="biu-btn" data-prop="fontStyle"  title="Italic">I</button>'
@@ -919,8 +953,8 @@ export function buildIframeScript() {
         + '</div>'
       + '</div>'
 
-      // Alignment
-      + '<div class="row">'
+      // Alignment  (text targets only)
+      + '<div class="row text-only">'
         + '<div class="alignrow">'
           + '<button data-align="left">Left</button>'
           + '<button data-align="center">Center</button>'
@@ -929,8 +963,8 @@ export function buildIframeScript() {
         + '</div>'
       + '</div>'
 
-      // Size — slider + editable number
-      + '<div class="row">'
+      // Size — slider + editable number  (text targets only)
+      + '<div class="row text-only">'
         + '<div class="row-head"><span class="label">Size</span>'
           + '<input type="number" class="num-input sp-fs-input" min="6" max="200" step="1">'
         + '</div>'
@@ -941,7 +975,13 @@ export function buildIframeScript() {
       + '<div class="row sp-color-row">'
         + '<div class="row-head">'
           + '<span class="label">Color</span>'
+          + '<span class="sp-kind"><button class="up sp-parent" title="Select parent element">↑</button><span class="sp-kind-label">Text</span></span>'
           + '<button class="reset-btn sp-reset" title="Revert to original color">↶ Reset</button>'
+        + '</div>'
+        // Fill / Border toggle — shape targets only
+        + '<div class="fillrow shape-only">'
+          + '<button class="sp-fill on" data-fill="fill">Fill</button>'
+          + '<button class="sp-fill" data-fill="border">Border</button>'
         + '</div>'
         + '<div class="palette sp-palette"><!-- filled by renderPalette() --></div>'
         + '<div class="sp-recent-wrap" style="display:none;">'
@@ -952,7 +992,10 @@ export function buildIframeScript() {
         + '<div class="picker sp-picker">'
           + '<div class="sv sp-sv"><div class="sv-thumb sp-sv-thumb"></div></div>'
           + '<div class="hue sp-hue"><div class="hue-thumb sp-hue-thumb"></div></div>'
-          + '<div class="save-row"><button class="save-btn sp-save" type="button">＋ Save</button></div>'
+          + '<div class="save-row">'
+            + '<span class="hex-wrap"><span class="hex-hash">#</span><input type="text" class="hex-input sp-hex" maxlength="6" spellcheck="false" autocomplete="off" placeholder="RRGGBB"></span>'
+            + '<button class="save-btn sp-save" type="button">＋ Save</button>'
+          + '</div>'
         + '</div>'
       + '</div>'
 
@@ -1010,25 +1053,50 @@ export function buildIframeScript() {
       }
       debouncedCommitStyle();
     }
+
+    // Apply a color to whichever property is active (font / fill / border).
+    function applyColor(hex) {
+      if (!styleTarget) return;
+      maybeStartStyleChange(styleTarget);
+      var prop = activeColorProp();
+      var cssProp = prop.replace(/[A-Z]/g, function(m) { return '-' + m.toLowerCase(); });
+      styleTarget.style.setProperty(cssProp, hex, 'important');
+      if (prop === 'color') {
+        // Push to descendants too — intermediate <a>/<strong> carry their own.
+        styleTarget.querySelectorAll('*').forEach(function(child) {
+          child.style.setProperty('color', hex, 'important');
+        });
+      } else if (prop === 'borderColor') {
+        // A border-color is invisible without a width + style — ensure both.
+        var cs = getComputedStyle(styleTarget);
+        if (parseFloat(cs.borderTopWidth) === 0) styleTarget.style.setProperty('border-width', '2px', 'important');
+        if (cs.borderTopStyle === 'none') styleTarget.style.setProperty('border-style', 'solid', 'important');
+      }
+      debouncedCommitStyle();
+    }
     // Expose for module-level helpers (renderPalette / renderRecent etc.)
     stylePanel.__hceApply = apply;
+    stylePanel.__hceApplyColor = applyColor;
     stylePanel.querySelector('.close').onclick = hideStylePanel;
 
     // Refresh reset button enabled state after a color change
     function refreshResetState(color) {
       if (!styleTarget) return;
       var hex = rgbToHex(color);
-      var orig = styleTarget.__hceOriginalColor || hex;
+      var orig = styleTarget[origColorKey()] || hex;
       stylePanel.querySelector('.sp-reset').disabled = (hex.toLowerCase() === orig.toLowerCase());
     }
 
-    // Reset button — revert to original color captured when panel opened
+    // Reset button — revert active color (font/fill/border) to its original
     stylePanel.querySelector('.sp-reset').addEventListener('click', function() {
-      if (!styleTarget || !styleTarget.__hceOriginalColor) return;
-      var c = styleTarget.__hceOriginalColor;
-      apply('color', c);
+      if (!styleTarget) return;
+      var c = styleTarget[origColorKey()];
+      if (!c) return;
+      applyColor(c);
       markActiveSwatch(c);
       refreshResetState(c);
+      var hexEl = stylePanel.querySelector('.sp-hex');
+      if (hexEl) hexEl.value = c.replace('#', '').toUpperCase();
     });
 
     // ─── Bold / Italic / Underline toggles ───
@@ -1059,8 +1127,7 @@ export function buildIframeScript() {
       picker.classList.toggle('show', open);
       // When opening, sync picker thumbs to current color so it's not a fresh red square.
       if (open && styleTarget) {
-        var cur = rgbToHex(getComputedStyle(styleTarget).color);
-        setPickerFromHex(cur);
+        setPickerFromHex(currentTargetColorHex());
       }
     });
 
@@ -1080,9 +1147,11 @@ export function buildIframeScript() {
     function currentPickerHex() { return hsvToHex(hsvH, hsvS, hsvV); }
     function applyPickerColor() {
       var hex = currentPickerHex();
-      apply('color', hex);
+      applyColor(hex);
       markActiveSwatch(hex);
       refreshResetState(hex);
+      var hexEl = stylePanel.querySelector('.sp-hex');
+      if (hexEl) hexEl.value = hex.replace('#', '').toUpperCase();
       // Don't auto-push to Recent — only on explicit Save click.
     }
     function setPickerFromHex(hex) {
@@ -1142,6 +1211,55 @@ export function buildIframeScript() {
       pushRecent(currentPickerHex());
     });
 
+    // Hex input — type a #RRGGBB (or RGB) and it applies live.
+    var hexInput = stylePanel.querySelector('.sp-hex');
+    function commitHex() {
+      if (!styleTarget) return;
+      var v = (hexInput.value || '').trim().replace(/^#/, '');
+      if (v.length === 3) v = v.split('').map(function(c){ return c + c; }).join('');
+      if (!/^[0-9a-fA-F]{6}$/.test(v)) return;
+      var hex = '#' + v.toLowerCase();
+      applyColor(hex);
+      markActiveSwatch(hex);
+      refreshResetState(hex);
+      setPickerFromHex(hex);
+    }
+    hexInput.addEventListener('input', commitHex);
+    hexInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); commitHex(); }
+    });
+
+    // Fill / Border toggle (shape targets) — switches which color prop is edited.
+    stylePanel.querySelectorAll('.sp-fill').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        if (styleTargetIsText) return;
+        styleColorMode = btn.getAttribute('data-fill');
+        stylePanel.querySelectorAll('.sp-fill').forEach(function(b) {
+          b.classList.toggle('on', b === btn);
+        });
+        // Capture original for the newly-active prop, then re-sync the UI.
+        if (styleTarget[origColorKey()] === undefined) {
+          styleTarget[origColorKey()] = currentTargetColorHex();
+        }
+        var cur = currentTargetColorHex();
+        renderPalette();
+        markActiveSwatch(cur);
+        refreshResetState(cur);
+        setPickerFromHex(cur);
+        if (hexInput) hexInput.value = cur.replace('#', '').toUpperCase();
+      });
+    });
+
+    // Parent-select — step up to the containing block (text often covers its box).
+    stylePanel.querySelector('.sp-parent').addEventListener('click', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      if (!styleTarget) return;
+      var parent = styleTarget.parentElement;
+      while (parent && !parent.getAttribute('data-block-id')) parent = parent.parentElement;
+      if (!parent || parent === document.body || parent === document.documentElement) return;
+      showStylePanel(parent);
+    });
+
     // Font size — slider + number input, kept in sync
     var fs = stylePanel.querySelector('.sp-fs');
     var fsInput = stylePanel.querySelector('.sp-fs-input');
@@ -1165,6 +1283,9 @@ export function buildIframeScript() {
     // Expose for module-level helpers (renderPalette / renderRecent)
     stylePanel.__hceSetPickerFromHex = setPickerFromHex;
     stylePanel.__hceRefreshResetState = refreshResetState;
+    stylePanel.__hceSetHex = function(hex) {
+      if (hexInput) hexInput.value = rgbToHex(hex).replace('#', '').toUpperCase();
+    };
     return stylePanel;
   }
 
@@ -1204,10 +1325,11 @@ export function buildIframeScript() {
       b.title = c;
       b.addEventListener('click', function(ev) {
         if (ev.target && ev.target.classList && ev.target.classList.contains('x')) return; // click on × handled separately
-        if (stylePanel.__hceApply) stylePanel.__hceApply('color', c);
+        if (stylePanel.__hceApplyColor) stylePanel.__hceApplyColor(c);
         markActiveSwatch(c);
         if (stylePanel.__hceRefreshResetState) stylePanel.__hceRefreshResetState(c);
         if (stylePanel.__hceSetPickerFromHex) stylePanel.__hceSetPickerFromHex(c);
+        if (stylePanel.__hceSetHex) stylePanel.__hceSetHex(c);
       });
       // × delete button
       var x = document.createElement('button');
@@ -1256,26 +1378,30 @@ export function buildIframeScript() {
       consider(cs.borderColor);
     });
 
+    // Prioritise colours actually used in the document (most frequent first).
+    var TARGET = 8;
     var picked = Object.keys(counts).sort(function(a, b) {
       if (counts[a] !== counts[b]) return counts[b] - counts[a];
       return firstSeen[a] - firstSeen[b];
-    }).slice(0, 5);
+    }).slice(0, TARGET);
 
     // If empty, seed with a sensible default
     if (picked.length === 0) picked = ['#ff5a1f'];
 
-    // Fill up to 5 with hue-rotated complementary colors of the first pick
-    var i = 1;
-    while (picked.length < 5 && i < 30) {
+    // Fill the rest with harmonious colours derived from what's on the page:
+    // complement (+180), then split-complements and analogues around each pick.
+    var STEPS = [180, 30, -30, 150, -150, 90, -90, 60];
+    var i = 0;
+    while (picked.length < TARGET && i < 60) {
       var src = picked[i % picked.length] || picked[0];
       var hsv = hexToHsv(src);
-      var step = i <= 3 ? 180 : (60 * i);
-      var nh = (hsv.h + step) % 360;
-      var nc = hsvToHex(nh, Math.max(0.5, hsv.s || 0.7), Math.max(0.5, hsv.v || 0.7)).toLowerCase();
+      var step = STEPS[i % STEPS.length];
+      var nh = (hsv.h + step + 360) % 360;
+      var nc = hsvToHex(nh, Math.max(0.45, hsv.s || 0.7), Math.max(0.5, hsv.v || 0.7)).toLowerCase();
       if (picked.indexOf(nc) === -1) picked.push(nc);
       i++;
     }
-    currentPalette = picked.slice(0, 5);
+    currentPalette = picked.slice(0, TARGET);
     return currentPalette;
   }
 
@@ -1283,25 +1409,26 @@ export function buildIframeScript() {
     if (!stylePanel) return;
     var row = stylePanel.querySelector('.sp-palette');
     row.innerHTML = '';
-    // Build display list: [original, ...5 recommended], dedupe.
-    var orig = (styleTarget && styleTarget.__hceOriginalColor) ? styleTarget.__hceOriginalColor.toLowerCase() : null;
+    // Build display list: [original, ...recommended], dedupe. Original first.
+    var orig = (styleTarget && styleTarget[origColorKey()]) ? styleTarget[origColorKey()].toLowerCase() : null;
     var list = [];
     if (orig) list.push(orig);
     currentPalette.forEach(function(c) {
       if (list.indexOf(c.toLowerCase()) === -1) list.push(c);
     });
-    list = list.slice(0, 6);
-    list.forEach(function(c, idx) {
+    list = list.slice(0, 9);
+    list.forEach(function(c) {
       var b = document.createElement('button');
       b.className = 'sw' + (orig && c.toLowerCase() === orig ? ' original' : '');
       b.setAttribute('data-color', c);
       b.style.background = c;
       b.title = (orig && c.toLowerCase() === orig) ? (c + ' (original)') : c;
       b.addEventListener('click', function() {
-        if (stylePanel.__hceApply) stylePanel.__hceApply('color', c);
+        if (stylePanel.__hceApplyColor) stylePanel.__hceApplyColor(c);
         markActiveSwatch(c);
         if (stylePanel.__hceRefreshResetState) stylePanel.__hceRefreshResetState(c);
         if (stylePanel.__hceSetPickerFromHex) stylePanel.__hceSetPickerFromHex(c);
+        if (stylePanel.__hceSetHex) stylePanel.__hceSetHex(c);
       });
       row.appendChild(b);
     });
@@ -1354,12 +1481,22 @@ export function buildIframeScript() {
   function populateStylePanel(el) {
     var p = ensureStylePanel();
     var cs = getComputedStyle(el);
-    var hexC = rgbToHex(cs.color);
 
-    // Capture the original color ONCE per element. Reset reverts to it.
-    if (!el.__hceOriginalColor) {
-      el.__hceOriginalColor = hexC;
-    }
+    // ── Decide what kind of target this is ──
+    //   Text leaf  → font color + B/I/U + align + size.
+    //   Shape/box  → fill / border color, no text-format controls.
+    styleTargetIsText = el.hasAttribute('data-hce-text');
+    if (!styleTargetIsText) styleColorMode = 'fill';   // reset to Fill each open
+    p.setAttribute('data-kind', styleTargetIsText ? 'text' : 'shape');
+    var kindLabel = p.querySelector('.sp-kind-label');
+    if (kindLabel) kindLabel.textContent = styleTargetIsText ? 'Text' : (el.tagName.toLowerCase());
+    p.querySelectorAll('.sp-fill').forEach(function(b) {
+      b.classList.toggle('on', b.getAttribute('data-fill') === styleColorMode);
+    });
+
+    // Current value + original of the ACTIVE color property.
+    var hexC = currentTargetColorHex();
+    if (el[origColorKey()] === undefined) el[origColorKey()] = hexC;
 
     // Build the page-derived palette + render it.
     extractPageColors();
@@ -1368,7 +1505,11 @@ export function buildIframeScript() {
 
     // Reset button state (enabled if current color !== original)
     var resetBtn = p.querySelector('.sp-reset');
-    resetBtn.disabled = (hexC.toLowerCase() === el.__hceOriginalColor.toLowerCase());
+    resetBtn.disabled = (hexC.toLowerCase() === (el[origColorKey()] || hexC).toLowerCase());
+
+    // Sync the hex input
+    var hexEl = p.querySelector('.sp-hex');
+    if (hexEl) hexEl.value = hexC.replace('#', '').toUpperCase();
 
     // Active swatch in the palette, and HSV picker thumbs if open
     markActiveSwatch(hexC);
