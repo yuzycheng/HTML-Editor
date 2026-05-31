@@ -697,9 +697,10 @@ export function buildIframeScript() {
   //   Text leaf  → font color (the "color" property).
   //   Shape/box  → fill (background-color) or border (border-color).
   var styleTargetIsText = true;
-  var styleColorMode = 'fill';            // 'fill' | 'border' (shape targets)
+  var styleColorMode = 'fill';            // 'text' | 'fill' | 'border' (shape targets)
   function activeColorProp() {
     if (styleTargetIsText) return 'color';
+    if (styleColorMode === 'text') return 'color';      // recolor a box's own text
     return styleColorMode === 'border' ? 'borderColor' : 'backgroundColor';
   }
   function currentTargetColorHex() {
@@ -888,7 +889,7 @@ export function buildIframeScript() {
       'cursor:pointer;color:#737373;font-size:11px;line-height:1;padding:2px 5px;}',
       '#__hce-style-panel .sp-kind .up:hover{background:#f0efed;color:#1a1a1a;}',
       // Fill / Border toggle (shape targets only)
-      '#__hce-style-panel .fillrow{display:grid;grid-template-columns:repeat(2,1fr);gap:4px;margin-bottom:8px;}',
+      '#__hce-style-panel .fillrow{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;margin-bottom:8px;}',
       '#__hce-style-panel .fillrow button{background:#fafaf9;border:1px solid #e7e5e4;color:#44403c;',
       'padding:5px 0;border-radius:6px;cursor:pointer;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;}',
       '#__hce-style-panel .fillrow button:hover{background:#f0efed;color:#1a1a1a;}',
@@ -978,8 +979,10 @@ export function buildIframeScript() {
           + '<span class="sp-kind"><button class="up sp-parent" title="Select parent element">↑</button><span class="sp-kind-label">Text</span></span>'
           + '<button class="reset-btn sp-reset" title="Revert to original color">↶ Reset</button>'
         + '</div>'
-        // Fill / Border toggle — shape targets only
+        // Text / Fill / Border toggle — shape targets only. "Text" recolors
+        // the box's own text and only shows when the box actually has text.
         + '<div class="fillrow shape-only">'
+          + '<button class="sp-fill sp-fill-text" data-fill="text">Text</button>'
           + '<button class="sp-fill on" data-fill="fill">Fill</button>'
           + '<button class="sp-fill" data-fill="border">Border</button>'
         + '</div>'
@@ -1486,8 +1489,14 @@ export function buildIframeScript() {
     //   Text leaf  → font color + B/I/U + align + size.
     //   Shape/box  → fill / border color, no text-format controls.
     styleTargetIsText = el.hasAttribute('data-hce-text');
-    if (!styleTargetIsText) styleColorMode = 'fill';   // reset to Fill each open
+    // A "shape" that actually contains text gets a Text mode too, defaulting
+    // to it — recolouring the text is the usual intent, and without this a
+    // box's text simply could not be recoloured at all.
+    var shapeHasText = !styleTargetIsText && !!(el.textContent && el.textContent.trim());
+    if (!styleTargetIsText) styleColorMode = shapeHasText ? 'text' : 'fill';
     p.setAttribute('data-kind', styleTargetIsText ? 'text' : 'shape');
+    var textBtn = p.querySelector('.sp-fill-text');
+    if (textBtn) textBtn.style.display = shapeHasText ? '' : 'none';
     var kindLabel = p.querySelector('.sp-kind-label');
     if (kindLabel) kindLabel.textContent = styleTargetIsText ? 'Text' : (el.tagName.toLowerCase());
     p.querySelectorAll('.sp-fill').forEach(function(b) {
