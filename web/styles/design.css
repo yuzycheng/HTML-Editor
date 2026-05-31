@@ -41,8 +41,8 @@
   /* geometry */
   --unit:    4px;
   --gutter:  20px;
-  --radius:  8px;
-  --radius-sm: 4px;
+  --radius:  15px;
+  --radius-sm: 9px;
   --rule-w:  1px;
 
   /* elevation */

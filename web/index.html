@@ -4,12 +4,28 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HTML Editor · Collaborative revision for HTML</title>
+<link rel="icon" type="image/svg+xml" href="./assets/logo-mark.svg">
 <link rel="stylesheet" href="./styles/design.css">
 <style>
+  /* Wheat-toned dot grid on the root so it fills the whole scroll height
+     (no seam when the page is taller than one viewport). */
+  /* Live-tweakable knobs (driven by the ?tweak panel; safe defaults here). */
+  :root {
+    --page-bg: hsl(220 8% 98%);
+    --dot-alpha: 0.15;
+    --card-alpha: 0.83;
+  }
+  html {
+    background-color: var(--page-bg);
+    background-image: radial-gradient(circle at 1px 1px, rgba(60, 64, 74, var(--dot-alpha)) 1px, transparent 0);
+    background-size: 22px 22px;
+    background-position: -1px -1px;
+  }
   body {
     display: flex;
     flex-direction: column;
     min-height: 100vh;
+    background: transparent;
   }
 
   /* ── Top bar ─────────────────────────────────── */
@@ -17,23 +33,24 @@
     display: flex;
     align-items: center;
     height: 56px;
+    margin-top: 18px;
     padding: 0 32px;
-    background: var(--paper);
+    background: transparent;
   }
   .topbar .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
     font-family: var(--font-sans);
     font-size: var(--text-md);
     font-weight: 600;
     letter-spacing: -0.005em;
     color: var(--ink);
   }
-  .topbar .brand .dot {
-    display: inline-block;
-    width: 8px; height: 8px;
-    border-radius: 2px;
-    background: var(--signal);
-    margin-right: 8px;
-    vertical-align: middle;
+  .topbar .brand .brand-mark {
+    height: 24px;
+    width: auto;
+    display: block;
   }
   .topbar .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
   .topbar .right .small {
@@ -79,14 +96,44 @@
   .card {
     width: 100%;
     max-width: 760px;
-    background: var(--panel);
-    border: var(--rule-w) solid var(--rule);
+    /* Translucent white so the cool dot grid faintly shows through. */
+    background: rgba(255, 255, 255, var(--card-alpha));
+    -webkit-backdrop-filter: blur(3px) saturate(1.04);
+    backdrop-filter: blur(3px) saturate(1.04);
+    border: var(--rule-w) solid rgba(255, 255, 255, 0.7);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-card);
+    box-shadow: 0 1px 2px rgba(20, 24, 34, 0.04), 0 10px 30px rgba(20, 24, 34, 0.08);
     padding: 48px 48px 40px;
   }
   @media (max-width: 600px) {
     .card { padding: 32px 24px 28px; }
+  }
+
+  /* Hero brand lockup */
+  .hero-logo {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 26px;
+  }
+  .hero-logo img {
+    height: 54px;
+    width: auto;
+    display: block;
+    flex-shrink: 0;
+  }
+  .hero-logo .wordmark {
+    font-family: var(--font-sans);
+    font-weight: 800;
+    font-size: 32px;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    color: var(--ink);
+  }
+  .hero-logo .wordmark .ed { color: var(--signal); }
+  @media (max-width: 480px) {
+    .hero-logo img { height: 46px; }
+    .hero-logo .wordmark { font-size: 26px; }
   }
 
   .eyebrow {
@@ -320,7 +367,7 @@
 
 <!-- Top bar -->
 <div class="topbar">
-  <div class="brand"><span class="dot"></span>HTML Editor<span class="beta-pill">BETA</span></div>
+  <div class="brand"><img class="brand-mark" src="./assets/logo-mark.svg" alt="">HTML Editor<span class="beta-pill">BETA</span></div>
   <div class="right">
     <a class="small" href="https://github.com/yuzycheng/HTML-Editor" target="_blank" rel="noopener" style="color:var(--muted); text-decoration:none;">GitHub ↗</a>
   </div>
@@ -329,6 +376,10 @@
 <!-- Stage -->
 <section class="stage">
   <div class="card">
+    <div class="hero-logo">
+      <img src="./assets/logo-mark.svg" alt="HTML Editor logo">
+      <span class="wordmark">HTML<span class="ed"> EDITOR</span></span>
+    </div>
     <div class="eyebrow">For revising HTML</div>
     <h1>Edit and comment on<br>HTML — together.</h1>
     <p class="lead">
@@ -564,6 +615,111 @@
   }
   document.getElementById('recent-clear').addEventListener('click', clearAllRoom);
   renderRecent();
+</script>
+
+<!-- ───────── Live design tweak panel (only with ?tweak in the URL) ─────────
+     A no-code visual control panel. Drag sliders / pick a colour and the page
+     updates live. Hit "复制数值" and paste the result back to bake it in.
+     Safe to delete this whole block when done. -->
+<script>
+(function () {
+  const p = new URLSearchParams(location.search);
+  if (!p.has('tweak')) return;
+
+  const root = document.documentElement;
+  const css = (k, v) => root.style.setProperty(k, v);
+
+  const ACCENTS = [
+    ['#ff5a1f','橙'], ['#3b82f6','蓝'], ['#14b8a6','青'],
+    ['#8b5cf6','紫'], ['#84cc16','绿'], ['#1a1a1a','黑'],
+  ];
+
+  const panel = document.createElement('div');
+  panel.id = '__tweak';
+  panel.innerHTML = `
+    <style>
+      #__tweak{position:fixed;top:14px;right:14px;z-index:99999;width:248px;
+        background:rgba(20,22,28,.92);color:#f4f5f7;border-radius:14px;
+        font:12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        box-shadow:0 12px 40px rgba(0,0,0,.35);backdrop-filter:blur(8px);
+        -webkit-backdrop-filter:blur(8px);overflow:hidden;user-select:none;}
+      #__tweak .hd{display:flex;align-items:center;justify-content:space-between;
+        padding:11px 13px;cursor:pointer;font-weight:600;letter-spacing:.02em;}
+      #__tweak .hd .dotmark{width:7px;height:7px;border-radius:2px;background:#84cc16;
+        display:inline-block;margin-right:7px;vertical-align:middle;}
+      #__tweak .bd{padding:4px 13px 13px;}
+      #__tweak.col .bd{display:none;}
+      #__tweak .row{margin:11px 0;}
+      #__tweak .row .lab{display:flex;justify-content:space-between;margin-bottom:5px;
+        color:#aeb3bd;}
+      #__tweak .row .lab b{color:#f4f5f7;font-weight:600;font-variant-numeric:tabular-nums;}
+      #__tweak input[type=range]{width:100%;-webkit-appearance:none;height:4px;
+        border-radius:3px;background:#3a3e48;outline:none;margin:0;}
+      #__tweak input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;
+        width:16px;height:16px;border-radius:50%;background:#fff;cursor:pointer;
+        box-shadow:0 1px 4px rgba(0,0,0,.4);}
+      #__tweak .sw{display:flex;gap:7px;margin-top:6px;}
+      #__tweak .sw button{width:26px;height:26px;border-radius:7px;border:2px solid transparent;
+        cursor:pointer;padding:0;}
+      #__tweak .sw button.on{border-color:#fff;}
+      #__tweak .cp{margin-top:13px;width:100%;height:32px;border:none;border-radius:8px;
+        background:#84cc16;color:#10240a;font-weight:700;font-size:12px;cursor:pointer;}
+      #__tweak .cp:active{transform:translateY(1px);}
+      #__tweak .hint{margin-top:8px;color:#8b909b;font-size:10.5px;line-height:1.45;}
+    </style>
+    <div class="hd"><span><span class="dotmark"></span>设计调节 · 临时</span><span class="tg">▾</span></div>
+    <div class="bd">
+      <div class="row"><div class="lab"><span>背景灰度（越大越浅）</span><b id="t-bgv">92</b></div>
+        <input type="range" id="t-bg" min="82" max="98" value="92"></div>
+      <div class="row"><div class="lab"><span>点阵深浅</span><b id="t-dotv">0.10</b></div>
+        <input type="range" id="t-dot" min="0" max="26" value="10"></div>
+      <div class="row"><div class="lab"><span>卡片透明（越小越透）</span><b id="t-cardv">0.66</b></div>
+        <input type="range" id="t-card" min="30" max="100" value="66"></div>
+      <div class="row"><div class="lab"><span>圆角</span><b id="t-radv">14px</b></div>
+        <input type="range" id="t-rad" min="0" max="28" value="14"></div>
+      <div class="row"><div class="lab"><span>强调色</span><b id="t-accv">#ff5a1f</b></div>
+        <div class="sw" id="t-sw"></div></div>
+      <button class="cp" id="t-copy">📋 复制这套数值</button>
+      <div class="hint">拖一下页面就变。调好点上面按钮，把复制到的内容发给我即可固化。</div>
+    </div>`;
+  document.body.appendChild(panel);
+
+  // collapse toggle
+  panel.querySelector('.hd').addEventListener('click', () => {
+    panel.classList.toggle('col');
+    panel.querySelector('.tg').textContent = panel.classList.contains('col') ? '▸' : '▾';
+  });
+
+  const $ = id => panel.querySelector('#' + id);
+  const state = { bg:92, dot:0.10, card:0.66, rad:14, accent:'#ff5a1f' };
+
+  function applyBg(v){ state.bg=+v; css('--page-bg', `hsl(220 8% ${v}%)`); $('t-bgv').textContent=v; }
+  function applyDot(v){ state.dot=(+v/100); css('--dot-alpha', state.dot.toFixed(2)); $('t-dotv').textContent=state.dot.toFixed(2); }
+  function applyCard(v){ state.card=(+v/100); css('--card-alpha', state.card.toFixed(2)); $('t-cardv').textContent=state.card.toFixed(2); }
+  function applyRad(v){ state.rad=+v; css('--radius', v+'px'); $('t-radv').textContent=v+'px'; }
+  function applyAccent(hex){ state.accent=hex; css('--signal', hex); $('t-accv').textContent=hex;
+    panel.querySelectorAll('#t-sw button').forEach(b=>b.classList.toggle('on', b.dataset.c===hex)); }
+
+  $('t-bg').addEventListener('input', e=>applyBg(e.target.value));
+  $('t-dot').addEventListener('input', e=>applyDot(e.target.value));
+  $('t-card').addEventListener('input', e=>applyCard(e.target.value));
+  $('t-rad').addEventListener('input', e=>applyRad(e.target.value));
+
+  const sw = $('t-sw');
+  ACCENTS.forEach(([hex,name])=>{ const b=document.createElement('button');
+    b.style.background=hex; b.dataset.c=hex; b.title=name;
+    b.addEventListener('click', ()=>applyAccent(hex)); sw.appendChild(b); });
+
+  $('t-copy').addEventListener('click', async () => {
+    const txt = `背景灰度 ${state.bg} | 点阵 ${state.dot.toFixed(2)} | 卡片透明 ${state.card.toFixed(2)} | 圆角 ${state.rad}px | 强调色 ${state.accent}`;
+    try { await navigator.clipboard.writeText(txt); $('t-copy').textContent='✅ 已复制，发给我'; }
+    catch { prompt('复制这一行发给我：', txt); }
+    setTimeout(()=>{ $('t-copy').textContent='📋 复制这套数值'; }, 1600);
+  });
+
+  // initialise to current defaults
+  applyBg(92); applyDot(10); applyCard(66); applyRad(14); applyAccent('#ff5a1f');
+})();
 </script>
 
 </body>

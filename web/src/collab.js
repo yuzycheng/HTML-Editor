@@ -10,8 +10,15 @@
 //    { user: { id, name, color } }
 // ─────────────────────────────────────────────────
 
+// IMPORTANT: y-partykit (and its y-protocols dependency) must share the EXACT
+// SAME yjs module instance as the `Y` we import here. esm.sh otherwise bundles
+// y-partykit's own copy of yjs, giving two instances — the late joiner then
+// receives blocks built by the provider's yjs while our UndoManager runs on
+// the other instance, so its constructor/scope checks fail and the shared
+// party "cannot undo". `?deps=yjs@13.6.20` pins the whole tree to one instance.
+// (Symptom of breakage: console "Yjs was already imported".)
 import * as Y from 'https://esm.sh/yjs@13.6.20';
-import YPartyKitProvider from 'https://esm.sh/y-partykit@0.0.32/provider';
+import YPartyKitProvider from 'https://esm.sh/y-partykit@0.0.32/provider?deps=yjs@13.6.20';
 
 // Decide which PartyKit host to talk to.
 //
@@ -165,7 +172,14 @@ export async function connectCollab(state, handlers) {
   yMeta.observe((event, tx) => {
     if (tx.origin === LOCAL_ORIGIN) return;
     if (!event.keysChanged.has('skeleton')) return;
-    state.skeleton = yMeta.get('skeleton');
+    const nextSkeleton = yMeta.get('skeleton');
+    // Never blank the document. If an undo deleted the skeleton key (this
+    // happens when the key was first *created* by a tracked transaction, so
+    // its inverse is a deletion), yMeta.get returns undefined. Keep whatever
+    // is on screen and bail — "no more to undo" must leave the page put, not
+    // render a literal "undefined" body.
+    if (nextSkeleton == null || nextSkeleton === '') return;
+    state.skeleton = nextSkeleton;
     state.blocks = [];
     yBlocks.forEach((blockMap, id) => {
       state.blocks.push({
@@ -241,6 +255,14 @@ export async function connectCollab(state, handlers) {
       lastSeenTexts.set(id, text);
     },
     onLocalStructureChange(skeleton, blocks) {
+      // Guarantee the skeleton key already exists from an UNtagged write. If
+      // it were first created inside the tracked transaction below, undoing
+      // that transaction would *delete* the key (its inverse), blanking the
+      // doc to "undefined". Seeding it untagged first makes the tracked set
+      // an UPDATE, so undo restores the prior value instead of removing it.
+      if (!yMeta.has('skeleton')) {
+        yDoc.transact(() => { yMeta.set('skeleton', skeleton); });
+      }
       // Wholesale replace skeleton + blocks. Coarse but correct for v0.1.
       yDoc.transact(() => { /* tagged local origin below */
         yMeta.set('skeleton', skeleton);

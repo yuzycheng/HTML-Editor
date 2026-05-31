@@ -4,8 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HTML Editor · Room</title>
+<link rel="icon" type="image/svg+xml" href="./assets/logo-mark.svg">
 <link rel="stylesheet" href="./styles/design.css">
 <style>
+  /* Shared cool-gray dot grid, matching the landing page. The editor chrome
+     (top bar, comment rail, status strip, gutter) sits on this; the user's
+     document in the canvas stays white, like a sheet on a dotted desk. */
+  :root {
+    --page-bg: hsl(220 8% 98%);
+    --dot-alpha: 0.15;
+    --dot-grid: radial-gradient(circle at 1px 1px, rgba(60, 64, 74, var(--dot-alpha)) 1px, transparent 0);
+  }
   body {
     display: flex;
     flex-direction: column;
@@ -21,22 +30,25 @@
     height: 56px;
     padding: 0 20px;
     border-bottom: var(--rule-w) solid var(--rule);
-    background: var(--paper);
+    background-color: var(--page-bg);
+    background-image: var(--dot-grid);
+    background-size: 22px 22px;
+    background-position: -1px -1px;
     flex-shrink: 0;
   }
   .topbar .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
     font-size: var(--text-md);
     font-weight: 600;
     color: var(--ink);
     text-decoration: none;
   }
-  .topbar .brand .dot {
-    display: inline-block;
-    width: 8px; height: 8px;
-    border-radius: 2px;
-    background: var(--signal);
-    margin-right: 8px;
-    vertical-align: middle;
+  .topbar .brand .brand-mark {
+    height: 22px;
+    width: auto;
+    display: block;
   }
   .topbar .brand .beta-pill {
     display: inline-block;
@@ -132,7 +144,10 @@
     display: flex;
     overflow: hidden;
     min-height: 0;
-    background: var(--panel-2);
+    background-color: var(--page-bg);
+    background-image: var(--dot-grid);
+    background-size: 22px 22px;
+    background-position: -1px -1px;
   }
   .canvas {
     flex: 1;
@@ -147,12 +162,44 @@
     display: block;
     background: white;
   }
+  /* Upload / import loading state — covers the canvas until the doc renders. */
+  .canvas-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background-color: var(--page-bg);
+    background-image: var(--dot-grid);
+    background-size: 22px 22px;
+    background-position: -1px -1px;
+    transition: opacity .35s ease;
+  }
+  .canvas-loading.hide { opacity: 0; pointer-events: none; }
+  .canvas-loading .cl-spin {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 3px solid rgba(60, 64, 74, 0.16);
+    border-top-color: var(--signal);
+    animation: cl-rot 0.8s linear infinite;
+  }
+  @keyframes cl-rot { to { transform: rotate(360deg); } }
+  .canvas-loading .cl-text { font-size: 14px; font-weight: 600; color: var(--ink); }
+  .canvas-loading .cl-sub { font-size: 12px; color: var(--muted); margin-top: -8px; }
 
   /* ── Sidebar ────────────────────────────────── */
   .sidebar {
     width: 340px;
     border-left: var(--rule-w) solid var(--rule);
-    background: var(--paper);
+    /* Same cool dot grid as the landing page, so the comment rail feels
+       part of the brand. White composer/cards inside pop against it. */
+    background-color: var(--page-bg);
+    background-image: var(--dot-grid);
+    background-size: 22px 22px;
+    background-position: -1px -1px;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
@@ -424,7 +471,10 @@
     gap: 16px;
     height: 32px;
     padding: 0 20px;
-    background: var(--paper);
+    background-color: var(--page-bg);
+    background-image: var(--dot-grid);
+    background-size: 22px 22px;
+    background-position: -1px -1px;
     border-top: var(--rule-w) solid var(--rule);
     color: var(--muted);
     font-size: 12px;
@@ -572,7 +622,7 @@
 
 <!-- Top bar -->
 <div class="topbar" style="position:relative;">
-  <a class="brand" href="./index.html"><span class="dot"></span>HTML Editor<span class="beta-pill">BETA</span></a>
+  <a class="brand" href="./index.html"><img class="brand-mark" src="./assets/logo-mark.svg" alt="">HTML Editor<span class="beta-pill">BETA</span></a>
 
   <label class="btn btn-ghost upload-btn" for="reupload-input" title="Upload a new file to replace the current document">↑ Upload</label>
   <input type="file" id="reupload-input" accept=".html,.htm" style="display:none">
@@ -617,6 +667,14 @@
 <div class="main">
   <div class="canvas mode-edit" id="canvas">
     <iframe id="iframe" sandbox="allow-scripts allow-same-origin allow-forms allow-modals"></iframe>
+    <!-- Shown until the document iframe is ready. Visible by default so it
+         appears instantly (even before room.js parses a large upload); room.js
+         fades it out on the iframe 'ready' message. -->
+    <div class="canvas-loading" id="canvas-loading">
+      <div class="cl-spin"></div>
+      <div class="cl-text">Loading document…</div>
+      <div class="cl-sub">This can take a few seconds for large files.</div>
+    </div>
   </div>
 
   <div class="sidebar hide" id="sidebar">
