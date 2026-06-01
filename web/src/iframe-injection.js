@@ -281,7 +281,14 @@ export function buildIframeScript() {
         + '<button class="dup-col has-label" title="Duplicate this column">' + ICON_COL + '<span>Col</span></button>'
         + '<span class="sep"></span>'
         + '<button class="del-row has-label" title="Delete this row">' + ICON_X + '<span>Row</span></button>'
-        + '<button class="del-col has-label" title="Delete this column">' + ICON_X + '<span>Col</span></button>';
+        + '<button class="del-col has-label" title="Delete this column">' + ICON_X + '<span>Col</span></button>'
+        + '<span class="sep"></span>'
+        + '<button class="style" title="Style this cell (color · fill · border)">' + ICON_STYLE + '</button>';
+      tools.querySelector('.style').addEventListener('click', function(e) {
+        e.preventDefault(); e.stopPropagation();
+        if (!toolsTarget) return;
+        toggleStylePanel(toolsTarget);   // toolsTarget is the td/th cell
+      });
       tools.querySelector('.dup-row').addEventListener('click', function(e) {
         e.preventDefault(); e.stopPropagation();
         if (!toolsTarget) return;
@@ -696,12 +703,13 @@ export function buildIframeScript() {
   // ─── Target kind + which color property the panel edits ───
   //   Text leaf  → font color (the "color" property).
   //   Shape/box  → fill (background-color) or border (border-color).
-  var styleTargetIsText = true;
-  var styleColorMode = 'fill';            // 'text' | 'fill' | 'border' (shape targets)
+  var styleTargetIsText = true;           // HTML text leaf → show B/I/U/size
+  var styleTargetIsSvg = false;           // SVG element → paint via fill/stroke
+  var styleColorMode = 'text';            // 'text' | 'fill' | 'border'
   function activeColorProp() {
-    if (styleTargetIsText) return 'color';
-    if (styleColorMode === 'text') return 'color';      // recolor a box's own text
-    return styleColorMode === 'border' ? 'borderColor' : 'backgroundColor';
+    if (styleColorMode === 'border') return styleTargetIsSvg ? 'stroke' : 'borderColor';
+    if (styleColorMode === 'fill')   return styleTargetIsSvg ? 'fill'   : 'backgroundColor';
+    return styleTargetIsSvg ? 'fill' : 'color';   // 'text' → font colour (or svg fill)
   }
   function currentTargetColorHex() {
     if (!styleTarget) return '#000000';
@@ -855,8 +863,8 @@ export function buildIframeScript() {
       'line-height:1;}',
       '#__hce-style-panel .reset-btn:hover{background:#f5f5f4;color:#1a1a1a;}',
       '#__hce-style-panel .reset-btn:disabled{opacity:.35;cursor:default;}',
-      // Palette + recent — small fixed-size swatches in a flex row
-      '#__hce-style-panel .palette,#__hce-style-panel .recent{display:flex;flex-wrap:wrap;gap:6px;}',
+      // Palette + recent — clean fixed 8-column grid (presets = exactly one row)
+      '#__hce-style-panel .palette,#__hce-style-panel .recent{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;justify-items:start;}',
       '#__hce-style-panel .sw{width:22px;height:22px;border-radius:5px;border:1px solid #e7e5e4;',
       'cursor:pointer;padding:0;position:relative;transition:transform 80ms,box-shadow 80ms;flex-shrink:0;}',
       '#__hce-style-panel .sw:hover{transform:scale(1.12);box-shadow:0 2px 6px rgba(0,0,0,.12);z-index:1;}',
@@ -866,7 +874,7 @@ export function buildIframeScript() {
       'background:#1a1a1a;color:#fff;border-radius:50%;border:none;cursor:pointer;font-size:9px;',
       'line-height:13px;text-align:center;padding:0;display:none;}',
       '#__hce-style-panel .recent .sw:hover .x{display:block;}',
-      '#__hce-style-panel .recent-label{margin-top:8px;}',
+      '#__hce-style-panel .sp-recent{margin-top:6px;}',
       // Number input next to size slider
       '#__hce-style-panel .num-input{width:48px;height:22px;padding:0 6px;background:#fafaf9;',
       'border:1px solid #e7e5e4;border-radius:4px;font:11px ui-monospace,SFMono-Regular,monospace;',
@@ -888,15 +896,15 @@ export function buildIframeScript() {
       '#__hce-style-panel .sp-kind .up{background:#fafaf9;border:1px solid #e7e5e4;border-radius:4px;',
       'cursor:pointer;color:#737373;font-size:11px;line-height:1;padding:2px 5px;}',
       '#__hce-style-panel .sp-kind .up:hover{background:#f0efed;color:#1a1a1a;}',
-      // Fill / Border toggle (shape targets only)
-      '#__hce-style-panel .fillrow{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;margin-bottom:8px;}',
+      // Text / Fill / Border toggle — shown only when the target has color modes
+      '#__hce-style-panel .fillrow{display:none;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;margin-bottom:8px;}',
+      '#__hce-style-panel[data-colormodes="1"] .fillrow{display:grid;}',
       '#__hce-style-panel .fillrow button{background:#fafaf9;border:1px solid #e7e5e4;color:#44403c;',
       'padding:5px 0;border-radius:6px;cursor:pointer;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;}',
       '#__hce-style-panel .fillrow button:hover{background:#f0efed;color:#1a1a1a;}',
       '#__hce-style-panel .fillrow button.on{background:#1a1a1a;color:#fff;border-color:#1a1a1a;}',
-      // Hide text-only controls when a shape/container is selected
+      // Hide text-only controls (B/I/U, align, size) when not an HTML text leaf
       '#__hce-style-panel[data-kind="shape"] .text-only{display:none;}',
-      '#__hce-style-panel[data-kind="text"] .shape-only{display:none;}',
       '#__hce-style-panel .save-btn{background:#1a1a1a;color:#fff;border:none;border-radius:5px;',
       'padding:5px 11px;font-size:11px;font-weight:500;cursor:pointer;display:inline-flex;',
       'align-items:center;gap:4px;}',
@@ -979,16 +987,15 @@ export function buildIframeScript() {
           + '<span class="sp-kind"><button class="up sp-parent" title="Select parent element">↑</button><span class="sp-kind-label">Text</span></span>'
           + '<button class="reset-btn sp-reset" title="Revert to original color">↶ Reset</button>'
         + '</div>'
-        // Text / Fill / Border toggle — shape targets only. "Text" recolors
-        // the box's own text and only shows when the box actually has text.
-        + '<div class="fillrow shape-only">'
+        // Text / Fill / Border toggle. Shown (via data-colormodes) for shapes,
+        // svg, and text that also has a box. "Text" only when there's text.
+        + '<div class="fillrow">'
           + '<button class="sp-fill sp-fill-text" data-fill="text">Text</button>'
           + '<button class="sp-fill on" data-fill="fill">Fill</button>'
           + '<button class="sp-fill" data-fill="border">Border</button>'
         + '</div>'
         + '<div class="palette sp-palette"><!-- filled by renderPalette() --></div>'
         + '<div class="sp-recent-wrap" style="display:none;">'
-          + '<span class="label recent-label">Recent</span>'
           + '<div class="recent sp-recent"></div>'
         + '</div>'
         + '<button class="more-toggle sp-more-toggle" type="button"><span class="chev">▸</span> More colors</button>'
@@ -1065,7 +1072,7 @@ export function buildIframeScript() {
       var cssProp = prop.replace(/[A-Z]/g, function(m) { return '-' + m.toLowerCase(); });
       styleTarget.style.setProperty(cssProp, hex, 'important');
       if (prop === 'color') {
-        // Push to descendants too — intermediate <a>/<strong> carry their own.
+        // HTML text: push to descendants too — intermediate <a>/<strong> carry their own.
         styleTarget.querySelectorAll('*').forEach(function(child) {
           child.style.setProperty('color', hex, 'important');
         });
@@ -1074,7 +1081,13 @@ export function buildIframeScript() {
         var cs = getComputedStyle(styleTarget);
         if (parseFloat(cs.borderTopWidth) === 0) styleTarget.style.setProperty('border-width', '2px', 'important');
         if (cs.borderTopStyle === 'none') styleTarget.style.setProperty('border-style', 'solid', 'important');
+      } else if (prop === 'stroke') {
+        // SVG outline needs a stroke-width to show.
+        var cs2 = getComputedStyle(styleTarget);
+        if (!parseFloat(cs2.strokeWidth)) styleTarget.style.setProperty('stroke-width', '2', 'important');
       }
+      // (SVG 'fill' is set on the target only — selecting a specific shape
+      //  should not repaint the whole drawing.)
       debouncedCommitStyle();
     }
     // Expose for module-level helpers (renderPalette / renderRecent etc.)
@@ -1232,10 +1245,9 @@ export function buildIframeScript() {
       if (e.key === 'Enter') { e.preventDefault(); commitHex(); }
     });
 
-    // Fill / Border toggle (shape targets) — switches which color prop is edited.
+    // Text / Fill / Border toggle — switches which color prop is edited.
     stylePanel.querySelectorAll('.sp-fill').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        if (styleTargetIsText) return;
         styleColorMode = btn.getAttribute('data-fill');
         stylePanel.querySelectorAll('.sp-fill').forEach(function(b) {
           b.classList.toggle('on', b === btn);
@@ -1419,7 +1431,7 @@ export function buildIframeScript() {
     currentPalette.forEach(function(c) {
       if (list.indexOf(c.toLowerCase()) === -1) list.push(c);
     });
-    list = list.slice(0, 9);
+    list = list.slice(0, 8);   // exactly one row; user's saved colours go below
     list.forEach(function(c) {
       var b = document.createElement('button');
       b.className = 'sw' + (orig && c.toLowerCase() === orig ? ' original' : '');
@@ -1488,15 +1500,38 @@ export function buildIframeScript() {
     // ── Decide what kind of target this is ──
     //   Text leaf  → font color + B/I/U + align + size.
     //   Shape/box  → fill / border color, no text-format controls.
-    styleTargetIsText = el.hasAttribute('data-hce-text');
-    // A "shape" that actually contains text gets a Text mode too, defaulting
-    // to it — recolouring the text is the usual intent, and without this a
-    // box's text simply could not be recoloured at all.
-    var shapeHasText = !styleTargetIsText && !!(el.textContent && el.textContent.trim());
-    if (!styleTargetIsText) styleColorMode = shapeHasText ? 'text' : 'fill';
+    // ── Classify the target ──
+    styleTargetIsSvg = !!(el.namespaceURI && el.namespaceURI.indexOf('svg') !== -1);
+    var isTextLeaf = el.hasAttribute('data-hce-text');
+    // B/I/U + size only make sense for HTML text leaves.
+    styleTargetIsText = isTextLeaf && !styleTargetIsSvg;
+    var elHasText = !!(el.textContent && el.textContent.trim());
+
+    // Does the element have a paintable surface (so Fill / Border are useful)?
+    var hasFill, hasBorder;
+    if (styleTargetIsSvg) {
+      hasFill = true; hasBorder = true;                 // svg shapes: fill + stroke
+    } else {
+      var bg = cs.backgroundColor;
+      hasFill = !!bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)';
+      hasBorder = parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderRightWidth) > 0
+               || parseFloat(cs.borderBottomWidth) > 0 || parseFloat(cs.borderLeftWidth) > 0;
+    }
+    // Show the Text/Fill/Border toggle for anything that isn't a *plain* text
+    // leaf — i.e. shapes, svg, and text that ALSO has a box (badge / cell /
+    // button). A plain paragraph keeps just the font-colour swatches.
+    var showModes = !styleTargetIsText || hasFill || hasBorder;
+
+    // Default mode: svg → fill; html with text → text; otherwise → fill.
+    if (styleTargetIsSvg) styleColorMode = 'fill';
+    else if (elHasText) styleColorMode = 'text';
+    else styleColorMode = 'fill';
+
     p.setAttribute('data-kind', styleTargetIsText ? 'text' : 'shape');
+    p.setAttribute('data-colormodes', showModes ? '1' : '0');
+    // "Text" mode button only when there's HTML text to recolour.
     var textBtn = p.querySelector('.sp-fill-text');
-    if (textBtn) textBtn.style.display = shapeHasText ? '' : 'none';
+    if (textBtn) textBtn.style.display = (!styleTargetIsSvg && elHasText) ? '' : 'none';
     var kindLabel = p.querySelector('.sp-kind-label');
     if (kindLabel) kindLabel.textContent = styleTargetIsText ? 'Text' : (el.tagName.toLowerCase());
     p.querySelectorAll('.sp-fill').forEach(function(b) {
