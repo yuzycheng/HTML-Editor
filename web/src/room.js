@@ -712,8 +712,34 @@ window.deleteComment = function (id) {
   if (!c) return;
   delete state.comments[id];
   state.collab?.onLocalCommentDelete?.(id);
+  if (editingCommentId === id) editingCommentId = null;
   renderComments();
 };
+
+// ─── Edit a comment (only your own) ─────────────
+let editingCommentId = null;
+window.editComment = function (id) {
+  const c = state.comments[id];
+  if (!c || !c.author || c.author.id !== state.user.id) return;   // own only
+  editingCommentId = id;
+  renderComments();
+  const ta = document.querySelector('.sb-item .cmt-edit-input');
+  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+};
+function saveCommentEdit(id, text) {
+  const c = state.comments[id];
+  if (!c || !c.author || c.author.id !== state.user.id) return;
+  const next = (text || '').trim();
+  if (!next) return;                       // empty → keep old (use delete to remove)
+  c.text = next;
+  c.editedAt = Date.now();
+  editingCommentId = null;
+  state.collab?.onLocalCommentAdd?.(c);     // upsert over collab
+  markSaving();
+  renderComments();
+  toast('Comment updated');
+}
+function cancelCommentEdit() { editingCommentId = null; renderComments(); }
 
 function renderComments() {
   const list = document.getElementById('cmt-list');
@@ -737,16 +763,32 @@ function renderComments() {
           c.refs.map(r => `<span class="ref-tag" title="${escapeHTML(r.snippet)}">${escapeHTML(r.snippet)}</span>`).join('')
         }</div>`;
 
+    const isOwn = c.author && c.author.id === state.user.id;
+    const editing = editingCommentId === c.id;
+    const editedHTML = c.editedAt ? '<span class="edited">· edited</span>' : '';
+
+    const bodyHTML = editing
+      ? `<div class="cmt-edit">
+           <textarea class="cmt-edit-input" rows="3">${escapeHTML(c.text)}</textarea>
+           <div class="cmt-edit-actions">
+             <button class="cmt-cancel">Cancel</button>
+             <button class="cmt-save">Save</button>
+           </div>
+         </div>`
+      : `<div class="body">${escapeHTML(c.text)}</div>`;
+
     item.innerHTML = `
+      ${isOwn && !editing ? '<button class="edit" title="Edit">✎</button>' : ''}
       <button class="del" title="Delete">×</button>
       <div class="meta">
         <span class="author" style="color:${c.author.color};">${escapeHTML(c.author.name)}</span>
+        ${editedHTML}
       </div>
       ${tagsHTML}
-      <div class="body">${escapeHTML(c.text)}</div>
+      ${bodyHTML}
     `;
     item.onclick = () => {
-      if (isGeneral) return;
+      if (editing || isGeneral) return;
       const ids = c.refs.map(r => r.id);
       sendToIframe({ cmd: 'flash-refs', ids });
       sendToIframe({ cmd: 'scroll-to', id: ids[0] });
@@ -755,6 +797,18 @@ function renderComments() {
       e.stopPropagation();
       window.deleteComment(c.id);
     };
+    const editBtn = item.querySelector('.edit');
+    if (editBtn) editBtn.onclick = e => { e.stopPropagation(); window.editComment(c.id); };
+    if (editing) {
+      const ta = item.querySelector('.cmt-edit-input');
+      item.querySelector('.cmt-save').onclick = e => { e.stopPropagation(); saveCommentEdit(c.id, ta.value); };
+      item.querySelector('.cmt-cancel').onclick = e => { e.stopPropagation(); cancelCommentEdit(); };
+      ta.onclick = e => e.stopPropagation();
+      ta.onkeydown = e => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveCommentEdit(c.id, ta.value); }
+        if (e.key === 'Escape') { e.preventDefault(); cancelCommentEdit(); }
+      };
+    }
     list.appendChild(item);
   });
 }

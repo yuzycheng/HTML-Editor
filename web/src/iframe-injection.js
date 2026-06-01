@@ -905,6 +905,9 @@ export function buildIframeScript() {
       '#__hce-style-panel .fillrow button.on{background:#1a1a1a;color:#fff;border-color:#1a1a1a;}',
       // Hide text-only controls (B/I/U, align, size) when not an HTML text leaf
       '#__hce-style-panel[data-kind="shape"] .text-only{display:none;}',
+      // SVG text-content editor — only for svg <text> targets
+      '#__hce-style-panel .svgtext-row{display:none;}',
+      '#__hce-style-panel[data-svgtext="1"] .svgtext-row{display:block;}',
       '#__hce-style-panel .save-btn{background:#1a1a1a;color:#fff;border:none;border-radius:5px;',
       'padding:5px 11px;font-size:11px;font-weight:500;cursor:pointer;display:inline-flex;',
       'align-items:center;gap:4px;}',
@@ -952,6 +955,13 @@ export function buildIframeScript() {
     stylePanel.innerHTML =
         '<div class="sp-head"><span class="ttl">Style</span><button class="close" title="Close">×</button></div>'
       + '<div class="sp-body">'
+
+      // SVG text content editor — Chrome can't place a caret in <text>, so we
+      // edit the label here and write it back. Shown only for svg <text>.
+      + '<div class="row svgtext-row">'
+        + '<div class="row-head"><span class="label">Text content</span></div>'
+        + '<input type="text" class="num-input sp-svgtext" style="width:100%;text-align:left;padding:0 10px;" spellcheck="false">'
+      + '</div>'
 
       // Format: B / I / U  (text targets only)
       + '<div class="row text-only">'
@@ -1081,13 +1091,23 @@ export function buildIframeScript() {
         var cs = getComputedStyle(styleTarget);
         if (parseFloat(cs.borderTopWidth) === 0) styleTarget.style.setProperty('border-width', '2px', 'important');
         if (cs.borderTopStyle === 'none') styleTarget.style.setProperty('border-style', 'solid', 'important');
+      } else if (prop === 'fill') {
+        // SVG: selecting a whole <svg>/<g> container should recolour the shapes
+        // inside it (the text often sits ON TOP of a shape, so the shape can't
+        // be clicked directly). Skip <text> so filling shapes doesn't recolour
+        // the labels. A lone shape has no descendants, so this is a no-op there.
+        styleTarget.querySelectorAll('*').forEach(function(child) {
+          if (child.tagName && String(child.tagName).toLowerCase() === 'text') return;
+          child.style.setProperty('fill', hex, 'important');
+        });
       } else if (prop === 'stroke') {
-        // SVG outline needs a stroke-width to show.
+        // SVG outline needs a stroke-width to show; propagate to inner shapes too.
         var cs2 = getComputedStyle(styleTarget);
         if (!parseFloat(cs2.strokeWidth)) styleTarget.style.setProperty('stroke-width', '2', 'important');
+        styleTarget.querySelectorAll('*').forEach(function(child) {
+          child.style.setProperty('stroke', hex, 'important');
+        });
       }
-      // (SVG 'fill' is set on the target only — selecting a specific shape
-      //  should not repaint the whole drawing.)
       debouncedCommitStyle();
     }
     // Expose for module-level helpers (renderPalette / renderRecent etc.)
@@ -1244,6 +1264,17 @@ export function buildIframeScript() {
     hexInput.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') { e.preventDefault(); commitHex(); }
     });
+
+    // SVG text-content editor — write the field back into the <text> element
+    // and fire 'input' so the normal text-sync path picks it up.
+    var svgTextInput = stylePanel.querySelector('.sp-svgtext');
+    if (svgTextInput) {
+      svgTextInput.addEventListener('input', function() {
+        if (!styleTarget) return;
+        styleTarget.textContent = svgTextInput.value;
+        styleTarget.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      });
+    }
 
     // Text / Fill / Border toggle — switches which color prop is edited.
     stylePanel.querySelectorAll('.sp-fill').forEach(function(btn) {
@@ -1529,6 +1560,11 @@ export function buildIframeScript() {
 
     p.setAttribute('data-kind', styleTargetIsText ? 'text' : 'shape');
     p.setAttribute('data-colormodes', showModes ? '1' : '0');
+    // SVG <text> gets an editable content field (Chrome can't caret into it).
+    var isSvgText = styleTargetIsSvg && el.tagName && String(el.tagName).toLowerCase() === 'text';
+    p.setAttribute('data-svgtext', isSvgText ? '1' : '0');
+    var svgTextEl = p.querySelector('.sp-svgtext');
+    if (svgTextEl && isSvgText) svgTextEl.value = el.textContent || '';
     // "Text" mode button only when there's HTML text to recolour.
     var textBtn = p.querySelector('.sp-fill-text');
     if (textBtn) textBtn.style.display = (!styleTargetIsSvg && elHasText) ? '' : 'none';

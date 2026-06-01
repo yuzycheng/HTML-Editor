@@ -397,6 +397,30 @@
   }
   .sb-item:hover .del { opacity: 1; }
   .sb-item .del:hover { color: var(--error); background: var(--panel-2); }
+  .sb-item .edit {
+    position: absolute;
+    top: 6px; right: 32px;
+    background: transparent; border: none; cursor: pointer;
+    color: var(--subtle); font-size: 12px; padding: 2px 7px; opacity: 0;
+    border-radius: 4px; line-height: 1;
+  }
+  .sb-item:hover .edit { opacity: 1; }
+  .sb-item .edit:hover { color: var(--ink); background: var(--panel-2); }
+  .sb-item .meta .edited { color: var(--subtle); font-size: 11px; margin-left: 6px; }
+  .sb-item .cmt-edit-input {
+    width: 100%; resize: vertical; font-family: inherit; font-size: var(--text-sm);
+    line-height: 1.5; padding: 8px 10px; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--rule-strong);
+    border-radius: var(--radius-sm); outline: none;
+  }
+  .sb-item .cmt-edit-input:focus { border-color: var(--signal); }
+  .sb-item .cmt-edit-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+  .sb-item .cmt-edit-actions button {
+    height: 28px; padding: 0 12px; font-size: 12px; cursor: pointer;
+    border-radius: var(--radius-sm); border: 1px solid var(--rule-strong);
+    background: var(--panel); color: var(--ink);
+  }
+  .sb-item .cmt-edit-actions .cmt-save { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 
   /* ── Popovers ────────────────────────────────── */
   .popover {
