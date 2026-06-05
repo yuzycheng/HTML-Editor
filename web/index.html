@@ -178,6 +178,28 @@
   }
   .card .lead strong { color: var(--ink); font-weight: 600; }
 
+  /* ── Chinese typography ─────────────────────────
+     The display sizes / negative tracking are tuned for Latin; CJK wants no
+     negative letter-spacing, a touch more leading, and keep-all line breaks
+     so words/punctuation don't split awkwardly. */
+  html[lang="zh-CN"] .card h1 {
+    font-size: 40px;
+    line-height: 1.22;
+    letter-spacing: 0;
+    word-break: keep-all;
+  }
+  html[lang="zh-CN"] .card .lead {
+    line-height: 1.75;
+    letter-spacing: 0.01em;
+  }
+  html[lang="zh-CN"] .eyebrow { letter-spacing: 0.02em; }
+  html[lang="zh-CN"] .step .d,
+  html[lang="zh-CN"] .drop .txt .small { line-height: 1.65; }
+  html[lang="zh-CN"] .step .d { word-break: keep-all; }
+  @media (max-width: 480px) {
+    html[lang="zh-CN"] .card h1 { font-size: 34px; }
+  }
+
   /* ── Steps ─────────────────────────────────── */
   .steps {
     display: grid;
@@ -507,6 +529,7 @@
     recent_h:   { en: 'Recent files', zh: '最近文件' },
     clear:      { en: 'Clear all', zh: '全部清除' },
     footer:     { en: 'A small tool for editing HTML, together.', zh: '一个一起编辑 HTML 的小工具。' },
+    title:      { en: 'HTML Editor · Collaborative revision for HTML', zh: 'HTML 编辑器 · 协作修订 HTML' },
   };
 
   let curLang = localStorage.getItem('hce-lang')
@@ -519,9 +542,10 @@
       const t = I18N[el.getAttribute('data-i18n')];
       if (t && t[curLang] != null) el.innerHTML = t[curLang];
     });
-    // The label shows the language you'll switch TO.
+    document.title = I18N.title[curLang];
+    // The label shows the CURRENT language.
     const lbl = document.querySelector('#lang-toggle .lang-label');
-    if (lbl) lbl.textContent = curLang === 'zh' ? 'EN' : '中文';
+    if (lbl) lbl.textContent = curLang === 'zh' ? 'CN' : 'EN';
     try { localStorage.setItem('hce-lang', curLang); } catch (e) {}
   }
 

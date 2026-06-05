@@ -28,7 +28,9 @@
   --error:        #b91c1c;
 
   /* typography */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei',
+               'Hiragino Sans GB', 'Source Han Sans CN', 'Noto Sans CJK SC', sans-serif;
   --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, 'SF Mono', 'Menlo', monospace;
 
   --text-xs:   11px;
