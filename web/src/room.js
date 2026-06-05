@@ -146,6 +146,7 @@ function setLang(lang) {
   if (lastUsers) applyUsers(lastUsers);
   markSaved();
   renderComments();
+  sendToIframe({ cmd: 'set-lang', lang: hceLang });   // translate the in-iframe panel
 }
 
 // ─── Init ───────────────────────────────────────
@@ -622,6 +623,7 @@ function handleIframeMessage(e) {
   }
 
   if (d.type === 'ready') {
+    sendToIframe({ cmd: 'set-lang', lang: hceLang });   // localize the in-iframe panel
     pushSelectionToIframe();
     const iframe = document.getElementById('iframe');
     if (pendingScroll) {

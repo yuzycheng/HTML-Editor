@@ -277,13 +277,13 @@ export function buildIframeScript() {
     if (!tools) return;
     if (toolsCellId) {
       tools.innerHTML =
-          '<button class="dup-row has-label" title="Duplicate this row">' + ICON_ROW + '<span>Row</span></button>'
-        + '<button class="dup-col has-label" title="Duplicate this column">' + ICON_COL + '<span>Col</span></button>'
+          '<button class="dup-row has-label" title="' + pt('tb_dup_row') + '">' + ICON_ROW + '<span>' + pt('tb_row') + '</span></button>'
+        + '<button class="dup-col has-label" title="' + pt('tb_dup_col') + '">' + ICON_COL + '<span>' + pt('tb_col') + '</span></button>'
         + '<span class="sep"></span>'
-        + '<button class="del-row has-label" title="Delete this row">' + ICON_X + '<span>Row</span></button>'
-        + '<button class="del-col has-label" title="Delete this column">' + ICON_X + '<span>Col</span></button>'
+        + '<button class="del-row has-label" title="' + pt('tb_del_row') + '">' + ICON_X + '<span>' + pt('tb_row') + '</span></button>'
+        + '<button class="del-col has-label" title="' + pt('tb_del_col') + '">' + ICON_X + '<span>' + pt('tb_col') + '</span></button>'
         + '<span class="sep"></span>'
-        + '<button class="style" title="Style this cell (color · fill · border)">' + ICON_STYLE + '</button>';
+        + '<button class="style" title="' + pt('tb_cell_style_t') + '">' + ICON_STYLE + '</button>';
       tools.querySelector('.style').addEventListener('click', function(e) {
         e.preventDefault(); e.stopPropagation();
         if (!toolsTarget) return;
@@ -330,9 +330,9 @@ export function buildIframeScript() {
       });
     } else {
       tools.innerHTML =
-          '<button class="dup" title="Duplicate">' + ICON_PLUS + '</button>'
-        + '<button class="style" title="Style (color · size · weight · align · radius · padding)">' + ICON_STYLE + '</button>'
-        + '<button class="del" title="Delete">' + ICON_X + '</button>';
+          '<button class="dup" title="' + pt('tb_dup') + '">' + ICON_PLUS + '</button>'
+        + '<button class="style" title="' + pt('tb_style_t') + '">' + ICON_STYLE + '</button>'
+        + '<button class="del" title="' + pt('tb_del') + '">' + ICON_X + '</button>';
       tools.querySelector('.dup').addEventListener('click', function(e) {
         e.preventDefault(); e.stopPropagation();
         if (!toolsTarget) return;
@@ -523,6 +523,13 @@ export function buildIframeScript() {
 
     if (d.cmd === 'set-mode') applyMode(d.mode);
 
+    if (d.cmd === 'set-lang') {
+      panelLang = (d.lang === 'zh') ? 'zh' : 'en';
+      applyPanelI18n();
+      // Re-render the toolbar if it's currently showing (labels are baked in).
+      if (tools && tools.style.display !== 'none' && toolsTarget) renderToolsContent();
+    }
+
     if (d.cmd === 'undo-style') { undoStyleHistory(); }
     if (d.cmd === 'redo-style') { redoStyleHistory(); }
 
@@ -706,6 +713,37 @@ export function buildIframeScript() {
   var stylePanel = null;
   var styleTarget = null;
   var hideStylePanel; // forward decl
+
+  // ─── Panel i18n (language pushed from the parent via 'set-lang') ───
+  var panelLang = 'en';
+  var PANEL_I18N = {
+    style:{en:'Style',zh:'样式'}, close_t:{en:'Close',zh:'关闭'},
+    bold_t:{en:'Bold',zh:'加粗'}, italic_t:{en:'Italic',zh:'斜体'}, underline_t:{en:'Underline',zh:'下划线'},
+    align_left:{en:'Left',zh:'左对齐'}, align_center:{en:'Center',zh:'居中'}, align_right:{en:'Right',zh:'右对齐'}, align_justify:{en:'Justify',zh:'两端对齐'},
+    size:{en:'Size',zh:'字号'}, color:{en:'Color',zh:'颜色'},
+    kind_text:{en:'Text',zh:'文字'},
+    parent_t:{en:'Select parent element',zh:'选择父级元素'},
+    reset:{en:'Reset',zh:'重置'}, reset_t:{en:'Revert to original color',zh:'还原为初始颜色'},
+    text_mode:{en:'Text',zh:'文字'}, fill:{en:'Fill',zh:'填充'}, border:{en:'Border',zh:'描边'},
+    text_content:{en:'Text content',zh:'文字内容'},
+    more_colors:{en:'More colors',zh:'更多颜色'}, save_recent:{en:'Save',zh:'保存'},
+    tb_dup:{en:'Duplicate',zh:'复制'}, tb_del:{en:'Delete',zh:'删除'},
+    tb_style_t:{en:'Style (color, size, weight, align)',zh:'样式（颜色·字号·粗细·对齐）'},
+    tb_row:{en:'Row',zh:'行'}, tb_col:{en:'Col',zh:'列'},
+    tb_dup_row:{en:'Duplicate this row',zh:'复制此行'}, tb_dup_col:{en:'Duplicate this column',zh:'复制此列'},
+    tb_del_row:{en:'Delete this row',zh:'删除此行'}, tb_del_col:{en:'Delete this column',zh:'删除此列'},
+    tb_cell_style_t:{en:'Style this cell (color, fill, border)',zh:'设置此单元格（颜色·填充·描边）'}
+  };
+  function pt(k) { var e = PANEL_I18N[k]; if (!e) return k; return e[panelLang] != null ? e[panelLang] : e.en; }
+  function applyPanelI18n() {
+    if (!stylePanel) return;
+    stylePanel.querySelectorAll('[data-pi]').forEach(function(el) { el.textContent = pt(el.getAttribute('data-pi')); });
+    stylePanel.querySelectorAll('[data-pi-title]').forEach(function(el) { el.title = pt(el.getAttribute('data-pi-title')); });
+    if (styleTarget) {
+      var kl = stylePanel.querySelector('.sp-kind-label');
+      if (kl) kl.textContent = styleTargetIsText ? pt('kind_text') : styleTarget.tagName.toLowerCase();
+    }
+  }
 
   // ─── Target kind + which color property the panel edits ───
   //   Text leaf  → font color (the "color" property).
@@ -977,38 +1015,38 @@ export function buildIframeScript() {
     stylePanel.id = '__hce-style-panel';
 
     stylePanel.innerHTML =
-        '<div class="sp-head"><span class="ttl">Style</span><button class="close" title="Close">×</button></div>'
+        '<div class="sp-head"><span class="ttl" data-pi="style">Style</span><button class="close" data-pi-title="close_t" title="Close">×</button></div>'
       + '<div class="sp-body">'
 
       // SVG text content editor — Chrome can't place a caret in <text>, so we
       // edit the label here and write it back. Shown only for svg <text>.
       + '<div class="row svgtext-row">'
-        + '<div class="row-head"><span class="label">Text content</span></div>'
+        + '<div class="row-head"><span class="label" data-pi="text_content">Text content</span></div>'
         + '<input type="text" class="num-input sp-svgtext" style="width:100%;text-align:left;padding:0 10px;" spellcheck="false">'
       + '</div>'
 
       // Format: B / I / U  (text targets only)
       + '<div class="row text-only">'
         + '<div class="biu-row">'
-          + '<button class="biu-btn" data-prop="fontWeight" title="Bold">B</button>'
-          + '<button class="biu-btn" data-prop="fontStyle"  title="Italic">I</button>'
-          + '<button class="biu-btn" data-prop="textDecoration" title="Underline">U</button>'
+          + '<button class="biu-btn" data-prop="fontWeight" data-pi-title="bold_t" title="Bold">B</button>'
+          + '<button class="biu-btn" data-prop="fontStyle" data-pi-title="italic_t" title="Italic">I</button>'
+          + '<button class="biu-btn" data-prop="textDecoration" data-pi-title="underline_t" title="Underline">U</button>'
         + '</div>'
       + '</div>'
 
       // Alignment  (text targets only)
       + '<div class="row text-only">'
         + '<div class="alignrow">'
-          + '<button data-align="left">Left</button>'
-          + '<button data-align="center">Center</button>'
-          + '<button data-align="right">Right</button>'
-          + '<button data-align="justify">Justify</button>'
+          + '<button data-align="left" data-pi="align_left">Left</button>'
+          + '<button data-align="center" data-pi="align_center">Center</button>'
+          + '<button data-align="right" data-pi="align_right">Right</button>'
+          + '<button data-align="justify" data-pi="align_justify">Justify</button>'
         + '</div>'
       + '</div>'
 
       // Size — slider + editable number  (text targets only)
       + '<div class="row text-only">'
-        + '<div class="row-head"><span class="label">Size</span>'
+        + '<div class="row-head"><span class="label" data-pi="size">Size</span>'
           + '<input type="number" class="num-input sp-fs-input" min="6" max="200" step="1">'
         + '</div>'
         + '<input type="range" class="sp-fs" min="10" max="120">'
@@ -1017,28 +1055,28 @@ export function buildIframeScript() {
       // Color
       + '<div class="row sp-color-row">'
         + '<div class="row-head">'
-          + '<span class="label">Color</span>'
-          + '<span class="sp-kind"><button class="up sp-parent" title="Select parent element">↑</button><span class="sp-kind-label">Text</span></span>'
-          + '<button class="reset-btn sp-reset" title="Revert to original color">↶ Reset</button>'
+          + '<span class="label" data-pi="color">Color</span>'
+          + '<span class="sp-kind"><button class="up sp-parent" data-pi-title="parent_t" title="Select parent element">↑</button><span class="sp-kind-label">Text</span></span>'
+          + '<button class="reset-btn sp-reset" data-pi-title="reset_t" title="Revert to original color">↶ <span data-pi="reset">Reset</span></button>'
         + '</div>'
         // Text / Fill / Border toggle. Shown (via data-colormodes) for shapes,
         // svg, and text that also has a box. "Text" only when there's text.
         + '<div class="fillrow">'
-          + '<button class="sp-fill sp-fill-text" data-fill="text">Text</button>'
-          + '<button class="sp-fill on" data-fill="fill">Fill</button>'
-          + '<button class="sp-fill" data-fill="border">Border</button>'
+          + '<button class="sp-fill sp-fill-text" data-fill="text" data-pi="text_mode">Text</button>'
+          + '<button class="sp-fill on" data-fill="fill" data-pi="fill">Fill</button>'
+          + '<button class="sp-fill" data-fill="border" data-pi="border">Border</button>'
         + '</div>'
         + '<div class="palette sp-palette"><!-- filled by renderPalette() --></div>'
         + '<div class="sp-recent-wrap" style="display:none;">'
           + '<div class="recent sp-recent"></div>'
         + '</div>'
-        + '<button class="more-toggle sp-more-toggle" type="button"><span class="chev">▸</span> More colors</button>'
+        + '<button class="more-toggle sp-more-toggle" type="button"><span class="chev">▸</span> <span data-pi="more_colors">More colors</span></button>'
         + '<div class="picker sp-picker">'
           + '<div class="sv sp-sv"><div class="sv-thumb sp-sv-thumb"></div></div>'
           + '<div class="hue sp-hue"><div class="hue-thumb sp-hue-thumb"></div></div>'
           + '<div class="save-row">'
             + '<span class="hex-wrap"><span class="hex-hash">#</span><input type="text" class="hex-input sp-hex" maxlength="6" spellcheck="false" autocomplete="off" placeholder="RRGGBB"></span>'
-            + '<button class="save-btn sp-save" type="button">＋ Save</button>'
+            + '<button class="save-btn sp-save" type="button">＋ <span data-pi="save_recent">Save</span></button>'
           + '</div>'
         + '</div>'
       + '</div>'
@@ -1356,6 +1394,7 @@ export function buildIframeScript() {
     stylePanel.__hceSetHex = function(hex) {
       if (hexInput) hexInput.value = rgbToHex(hex).replace('#', '').toUpperCase();
     };
+    applyPanelI18n();
     return stylePanel;
   }
 
@@ -1593,7 +1632,7 @@ export function buildIframeScript() {
     var textBtn = p.querySelector('.sp-fill-text');
     if (textBtn) textBtn.style.display = (!styleTargetIsSvg && elHasText) ? '' : 'none';
     var kindLabel = p.querySelector('.sp-kind-label');
-    if (kindLabel) kindLabel.textContent = styleTargetIsText ? 'Text' : (el.tagName.toLowerCase());
+    if (kindLabel) kindLabel.textContent = styleTargetIsText ? pt('kind_text') : (el.tagName.toLowerCase());
     p.querySelectorAll('.sp-fill').forEach(function(b) {
       b.classList.toggle('on', b.getAttribute('data-fill') === styleColorMode);
     });
