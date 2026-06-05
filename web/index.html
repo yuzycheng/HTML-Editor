@@ -52,11 +52,27 @@
     width: auto;
     display: block;
   }
-  .topbar .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .topbar .right { margin-left: auto; display: flex; gap: 14px; align-items: center; }
   .topbar .right .small {
     font-size: var(--text-sm);
     color: var(--muted);
   }
+  .lang-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    border: none;
+    padding: 4px 2px;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1;
+    transition: color 100ms;
+  }
+  .lang-toggle:hover { color: var(--ink); }
+  .lang-toggle .globe { width: 17px; height: 17px; display: block; }
+  .lang-toggle .lang-label { font-weight: 500; }
   .beta-pill {
     display: inline-block;
     font-size: 10px;
@@ -369,6 +385,14 @@
 <div class="topbar">
   <div class="brand"><img class="brand-mark" src="./assets/logo-mark.svg" alt="">HTML Editor<span class="beta-pill">BETA</span></div>
   <div class="right">
+    <button class="lang-toggle" id="lang-toggle" type="button" title="切换语言 / Switch language" aria-label="Switch language">
+      <svg class="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M3 12h18"/>
+        <path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>
+      </svg>
+      <span class="lang-label">中文</span>
+    </button>
     <a class="small" href="https://github.com/yuzycheng/HTML-Editor" target="_blank" rel="noopener" style="color:var(--muted); text-decoration:none;">GitHub ↗</a>
   </div>
 </div>
@@ -380,9 +404,9 @@
       <img src="./assets/logo-mark.svg" alt="HTML Editor logo">
       <span class="wordmark">HTML<span class="ed"> EDITOR</span></span>
     </div>
-    <div class="eyebrow">For revising HTML</div>
-    <h1>Edit and comment on<br>HTML — together.</h1>
-    <p class="lead">
+    <div class="eyebrow" data-i18n="eyebrow">For revising HTML</div>
+    <h1 data-i18n="h1">Edit and comment on<br>HTML — together.</h1>
+    <p class="lead" data-i18n="lead">
       Drop in an HTML file, share the link, edit with your team — then
       download the result or send it back to your AI.
     </p>
@@ -396,8 +420,8 @@
             <path d="M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/>
           </svg>
         </div>
-        <div class="t">Upload</div>
-        <div class="d">Drop your .html file.</div>
+        <div class="t" data-i18n="up_t">Upload</div>
+        <div class="d" data-i18n="up_d">Drop your .html file.</div>
       </div>
       <div class="step">
         <div class="icon">
@@ -409,8 +433,8 @@
             <path d="M15.5 6.3l-7 4.4"/>
           </svg>
         </div>
-        <div class="t">Share</div>
-        <div class="d">Send the link — no signup.</div>
+        <div class="t" data-i18n="sh_t">Share</div>
+        <div class="d" data-i18n="sh_d">Send the link — no signup.</div>
       </div>
       <div class="step">
         <div class="icon">
@@ -419,8 +443,8 @@
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
           </svg>
         </div>
-        <div class="t">Edit &amp; comment</div>
-        <div class="d">Rewrite text, leave notes.</div>
+        <div class="t" data-i18n="ec_t">Edit &amp; comment</div>
+        <div class="d" data-i18n="ec_d">Rewrite text, leave notes.</div>
       </div>
       <div class="step">
         <div class="icon">
@@ -430,8 +454,8 @@
             <path d="M12 15V3"/>
           </svg>
         </div>
-        <div class="t">Export</div>
-        <div class="d">Download HTML or hand off to AI.</div>
+        <div class="t" data-i18n="ex_t">Export</div>
+        <div class="d" data-i18n="ex_d">Download HTML or hand off to AI.</div>
       </div>
     </div>
 
@@ -439,27 +463,74 @@
       <label for="file-input" class="drop" id="drop-zone">
         <div class="icon">↑</div>
         <div class="txt">
-          <div class="big">Drop your HTML file here</div>
-          <div class="small">or click anywhere in this box · .html / .htm · up to 2 MB</div>
+          <div class="big" data-i18n="drop_big">Drop your HTML file here</div>
+          <div class="small" data-i18n="drop_small">or click anywhere in this box · .html / .htm · up to 2 MB</div>
         </div>
         <input type="file" id="file-input" accept=".html,.htm" style="display:none">
       </label>
       <div class="start-col">
-        <button class="btn btn-primary btn-lg" id="start-btn">Start →</button>
+        <button class="btn btn-primary btn-lg" id="start-btn" data-i18n="start">Start →</button>
       </div>
     </div>
 
     <div class="recent" id="recent" style="display:none;">
       <div class="head">
-        <h3>Recent files</h3>
-        <button class="clear" id="recent-clear">Clear all</button>
+        <h3 data-i18n="recent_h">Recent files</h3>
+        <button class="clear" id="recent-clear" data-i18n="clear">Clear all</button>
       </div>
       <ul id="recent-list"></ul>
     </div>
   </div>
 </section>
 
-<div class="footer">A small tool for editing HTML, together.</div>
+<div class="footer" data-i18n="footer">A small tool for editing HTML, together.</div>
+
+<!-- ───────── Language toggle (EN ⇄ 中文) ───────── -->
+<script>
+(function () {
+  const I18N = {
+    eyebrow:    { en: 'For revising HTML', zh: '用于修订 HTML' },
+    h1:         { en: 'Edit and comment on<br>HTML — together.', zh: '一起编辑、批注<br>你的 HTML。' },
+    lead:       { en: 'Drop in an HTML file, share the link, edit with your team — then download the result or send it back to your AI.',
+                  zh: '拖入一个 HTML 文件，分享链接，和团队一起编辑——再下载成品，或交回给你的 AI。' },
+    up_t:       { en: 'Upload', zh: '上传' },
+    up_d:       { en: 'Drop your .html file.', zh: '拖入你的 .html 文件。' },
+    sh_t:       { en: 'Share', zh: '分享' },
+    sh_d:       { en: 'Send the link — no signup.', zh: '发送链接，无需注册。' },
+    ec_t:       { en: 'Edit & comment', zh: '编辑与批注' },
+    ec_d:       { en: 'Rewrite text, leave notes.', zh: '改写文字，留下批注。' },
+    ex_t:       { en: 'Export', zh: '导出' },
+    ex_d:       { en: 'Download HTML or hand off to AI.', zh: '下载 HTML，或交给 AI。' },
+    drop_big:   { en: 'Drop your HTML file here', zh: '把 HTML 文件拖到这里' },
+    drop_small: { en: 'or click anywhere in this box · .html / .htm · up to 2 MB', zh: '或点击此区域任意位置 · .html / .htm · 最大 2 MB' },
+    start:      { en: 'Start →', zh: '开始 →' },
+    recent_h:   { en: 'Recent files', zh: '最近文件' },
+    clear:      { en: 'Clear all', zh: '全部清除' },
+    footer:     { en: 'A small tool for editing HTML, together.', zh: '一个一起编辑 HTML 的小工具。' },
+  };
+
+  let curLang = localStorage.getItem('hce-lang')
+    || ((navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
+
+  function applyLang(lang) {
+    curLang = (lang === 'zh') ? 'zh' : 'en';
+    document.documentElement.lang = curLang === 'zh' ? 'zh-CN' : 'en';
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const t = I18N[el.getAttribute('data-i18n')];
+      if (t && t[curLang] != null) el.innerHTML = t[curLang];
+    });
+    // The label shows the language you'll switch TO.
+    const lbl = document.querySelector('#lang-toggle .lang-label');
+    if (lbl) lbl.textContent = curLang === 'zh' ? 'EN' : '中文';
+    try { localStorage.setItem('hce-lang', curLang); } catch (e) {}
+  }
+
+  document.getElementById('lang-toggle').addEventListener('click', () => {
+    applyLang(curLang === 'zh' ? 'en' : 'zh');
+  });
+  applyLang(curLang);
+})();
+</script>
 
 <script>
   const startBtn = document.getElementById('start-btn');
