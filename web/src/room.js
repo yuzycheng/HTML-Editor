@@ -97,16 +97,71 @@ function touchRecent(roomId, filename) {
   saveRecent(list);
 }
 
+// ─── i18n (shares the hce-lang choice with the landing page) ───────────
+const I18N = {
+  upload:{en:'↑ Upload',zh:'↑ 上传'}, upload_t:{en:'Upload a new file to replace the current document',zh:'上传新文件替换当前文档'},
+  edit:{en:'Edit',zh:'编辑'}, comment:{en:'Comment',zh:'批注'},
+  share:{en:'Share',zh:'分享'}, share_head:{en:'Anyone with this link can view and edit',zh:'拿到链接的人都能查看和编辑'},
+  copy:{en:'Copy',zh:'复制'}, copied:{en:'Copied',zh:'已复制'}, export:{en:'Export ▾',zh:'导出 ▾'},
+  exp_dl:{en:'Download HTML',zh:'下载 HTML'}, exp_dl_sub:{en:'Clean .html file — no comments. For sharing or final use.',zh:'干净的 .html 文件，不含批注。用于分享或定稿。'},
+  exp_ai:{en:'Hand off to AI',zh:'交给 AI'}, exp_ai_sub:{en:'HTML + comments as a Markdown prompt — copy or download .md.',zh:'把 HTML + 批注导成 Markdown 提示词，可复制或下载 .md。'},
+  loading:{en:'Loading document…',zh:'正在载入文档…'}, loading_sub:{en:'This can take a few seconds for large files.',zh:'文件较大时可能需要几秒。'},
+  comments:{en:'Comments',zh:'批注'}, general_t:{en:'Add a comment without anchoring to an element',zh:'添加一条不绑定具体元素的批注'},
+  cmt_ph:{en:'Write your comment…',zh:'写下你的批注…'}, save_hint:{en:'⌘ + ↵ to save',zh:'⌘ + ↵ 保存'},
+  cancel:{en:'Cancel',zh:'取消'}, save:{en:'Save',zh:'保存'}, close:{en:'Close',zh:'关闭'}, dl_md:{en:'↓ Download .md',zh:'↓ 下载 .md'},
+  cmt_empty:{en:'Click any element in the document to leave a comment, or use <b>+ General</b> for a note that isn\'t tied to one spot.',zh:'点击文档中任意元素留下批注，或用 <b>+ 通用</b> 添加不绑定具体位置的备注。'},
+  solo:{en:'Solo',zh:'单人'}, live:{en:'Live',zh:'协作中'}, saved:{en:'Saved',zh:'已保存'}, saving:{en:'Saving…',zh:'保存中…'}, local_only:{en:'Local only',zh:'仅本地'},
+  user_unit_one:{en:' user',zh:' 位用户'}, user_unit:{en:' users',zh:' 位用户'}, you_hint:{en:' (you — click to change)',zh:'（你——点击修改）'},
+  nick_title:{en:'Editing together',zh:'一起编辑'}, nick_h:{en:'Pick a nickname',zh:'取个昵称'}, nick_sub:{en:'So others know who edited and commented. No account needed.',zh:'让协作者知道是谁在编辑和批注。无需注册账号。'},
+  nick_name:{en:'Name',zh:'昵称'}, nick_name_ph:{en:'Your name',zh:'你的名字'}, nick_color:{en:'Color',zh:'颜色'},
+  exp_modal_hint:{en:'Paste into a chat for the next revision pass, or download as a Markdown file to attach in Claude Projects, NotebookLM, email, etc.',zh:'粘贴到对话里进行下一轮修订，或下载为 Markdown 文件，附到 Claude Projects、NotebookLM、邮件等处。'},
+  t_bad_file:{en:'Please drop an .html or .htm file',zh:'请拖入 .html 或 .htm 文件'}, t_too_big:{en:'File too large (max 2 MB)',zh:'文件过大（上限 2 MB）'},
+  t_replaced:{en:'Replaced with ',zh:'已替换为 '}, t_cmt_saved:{en:'Comment saved',zh:'批注已保存'}, t_cmt_updated:{en:'Comment updated',zh:'批注已更新'},
+  t_col_removed:{en:'Column removed',zh:'已删除该列'}, t_col_dup:{en:'Column duplicated',zh:'已复制该列'}, t_dup:{en:'Duplicated',zh:'已复制'}, t_removed:{en:'Removed',zh:'已删除'}, t_downloaded:{en:'Downloaded ',zh:'已下载 '},
+  lang_label:{en:'EN',zh:'CN'},
+};
+let hceLang = localStorage.getItem('hce-lang') || ((navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
+function t(key) { const e = I18N[key]; if (!e) return key; return e[hceLang] != null ? e[hceLang] : (e.en || key); }
+function applyStaticI18n() {
+  document.documentElement.lang = hceLang === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach(el => { const k = el.getAttribute('data-i18n'); if (I18N[k]) el.innerHTML = t(k); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => { const k = el.getAttribute('data-i18n-ph'); if (I18N[k]) el.placeholder = t(k); });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => { const k = el.getAttribute('data-i18n-title'); if (I18N[k]) el.title = t(k); });
+  const lbl = document.querySelector('#lang-toggle .lang-label'); if (lbl) lbl.textContent = t('lang_label');
+}
+let lastUsers = null;
+function applyUsers(users) {
+  lastUsers = users;
+  renderUsers(users);
+  const n = users.length || 1;
+  const uc = document.getElementById('user-count');
+  if (uc) uc.textContent = n + t(n === 1 ? 'user_unit_one' : 'user_unit');
+  const sl = document.getElementById('sync-label');
+  if (sl) sl.textContent = n > 1 ? t('live') : t('solo');
+}
+function setLang(lang) {
+  hceLang = (lang === 'zh') ? 'zh' : 'en';
+  try { localStorage.setItem('hce-lang', hceLang); } catch (e) {}
+  applyStaticI18n();
+  if (lastUsers) applyUsers(lastUsers);
+  markSaved();
+  renderComments();
+}
+
 // ─── Init ───────────────────────────────────────
 async function init() {
   const params = new URLSearchParams(location.search);
   state.roomId = params.get('room') || 'local-' + Math.random().toString(36).slice(2, 8);
 
+  // Apply the saved language to the static chrome + wire the globe toggle.
+  applyStaticI18n();
+  document.getElementById('lang-toggle')?.addEventListener('click', () => setLang(hceLang === 'zh' ? 'en' : 'zh'));
+
   // Identity
   state.user = loadUser() || await promptForNickname({ allowCancel: false });
   saveUser(state.user);
   document.getElementById('nick-modal-bg').classList.remove('show');
-  renderUsers([state.user]);
+  applyUsers([state.user]);
 
   // Initial HTML
   let initialHTML = sessionStorage.getItem('hce-init-html-' + state.roomId);
@@ -156,12 +211,7 @@ async function init() {
           markSaved();
         },
         onCommentsChange: () => { renderComments(); markSaved(); },
-        onUsersChange: (users) => {
-          renderUsers(users);
-          const n = users.length || 1;
-          document.getElementById('user-count').textContent = n + (n === 1 ? ' user' : ' users');
-          document.getElementById('sync-label').textContent = n > 1 ? 'Live' : 'Solo';
-        },
+        onUsersChange: (users) => { applyUsers(users); },
         onSkeletonChanged: () => {
           if (!initialRendered) {
             // Late joiner first render — go straight to full render so the
@@ -225,8 +275,8 @@ async function init() {
 }
 
 function replaceDocument(file) {
-  if (!/\.html?$/i.test(file.name)) { toast('Please drop an .html or .htm file'); return; }
-  if (file.size > 2 * 1024 * 1024) { toast('File too large (max 2 MB)'); return; }
+  if (!/\.html?$/i.test(file.name)) { toast(t('t_bad_file')); return; }
+  if (file.size > 2 * 1024 * 1024) { toast(t('t_too_big')); return; }
   const reader = new FileReader();
   reader.onload = e => {
     const parsed = parseHTML(e.target.result);
@@ -245,7 +295,7 @@ function replaceDocument(file) {
     renderIframe();
     renderComments();
     state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
-    toast('Replaced with ' + file.name);
+    toast(t('t_replaced') + file.name);
   };
   reader.readAsText(file);
 }
@@ -315,7 +365,7 @@ function renderUsers(users) {
     av.style.background = u.color;
     av.style.color = '#fff';
     av.textContent = (u.name || '?').slice(0, 2);
-    av.title = u.name + (u.id === state.user.id ? ' (you — click to change)' : '');
+    av.title = u.name + (u.id === state.user.id ? t('you_hint') : '');
     if (u.id === state.user.id) av.onclick = openIdentityEdit;
     el.appendChild(av);
   });
@@ -725,7 +775,7 @@ window.saveComposer = function () {
 
   closeComposer();
   renderComments();
-  toast('Comment saved');
+  toast(t('t_cmt_saved'));
 };
 
 window.deleteComment = function (id) {
@@ -758,7 +808,7 @@ function saveCommentEdit(id, text) {
   state.collab?.onLocalCommentAdd?.(c);     // upsert over collab
   markSaving();
   renderComments();
-  toast('Comment updated');
+  toast(t('t_cmt_updated'));
 }
 function cancelCommentEdit() { editingCommentId = null; renderComments(); }
 
@@ -768,7 +818,7 @@ function renderComments() {
   document.getElementById('cmt-count').textContent = all.length;
 
   if (all.length === 0 && !state.composer.open) {
-    list.innerHTML = '<div class="sb-empty">Click any element in the document to leave a comment, or use <b>+ General</b> for a note that isn\'t tied to one spot.</div>';
+    list.innerHTML = '<div class="sb-empty">' + t('cmt_empty') + '</div>';
     return;
   }
 
@@ -882,7 +932,7 @@ function deleteColumn(cellId) {
   state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
   renderComments();
   markSaving();
-  toast('Column removed');
+  toast(t('t_col_removed'));
 }
 
 function duplicateColumn(cellId) {
@@ -897,7 +947,7 @@ function duplicateColumn(cellId) {
   });
   state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
   markSaving();
-  toast('Column duplicated');
+  toast(t('t_col_dup'));
 }
 
 function duplicateBlock(rawId) {
@@ -917,7 +967,7 @@ function duplicateBlock(rawId) {
   });
   state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
   markSaving();
-  toast('Duplicated');
+  toast(t('t_dup'));
 }
 
 function deleteBlock(rawId) {
@@ -946,7 +996,7 @@ function deleteBlock(rawId) {
   state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
 
   renderComments();
-  toast('Removed');
+  toast(t('t_removed'));
 }
 
 // ─── Share + Export ─────────────────────────────
@@ -965,8 +1015,8 @@ window.toggleShareMenu = function (e) {
     copy.onclick = async () => {
       try { await navigator.clipboard.writeText(input.value); }
       catch { input.select(); document.execCommand('copy'); }
-      copy.textContent = 'Copied';
-      setTimeout(() => { copy.textContent = 'Copy'; }, 1400);
+      copy.textContent = t('copied');
+      setTimeout(() => { copy.textContent = t('copy'); }, 1400);
     };
   }
 };
@@ -984,7 +1034,7 @@ window.exportHTML = function () {
   const a = document.createElement('a');
   a.href = url; a.download = state.filename || 'document.html'; a.click();
   URL.revokeObjectURL(url);
-  toast('Downloaded ' + (state.filename || 'document.html'));
+  toast(t('t_downloaded') + (state.filename || 'document.html'));
 };
 
 window.exportForAI = function () {
@@ -1001,8 +1051,8 @@ window.copyExport = function () {
   const ta = document.getElementById('export-text');
   ta.select();
   navigator.clipboard.writeText(ta.value)
-    .then(() => toast('Copied'))
-    .catch(() => { document.execCommand('copy'); toast('Copied'); });
+    .then(() => toast(t('copied')))
+    .catch(() => { document.execCommand('copy'); toast(t('copied')); });
 };
 
 window.downloadExportMd = function () {
@@ -1017,7 +1067,7 @@ window.downloadExportMd = function () {
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
-  toast('Downloaded ' + name);
+  toast(t('t_downloaded') + name);
 };
 
 // ─── Undo / redo — chronological log of ALL local actions ─────────────
@@ -1119,9 +1169,9 @@ function markSaved() {
   const el = document.getElementById('save-state');
   if (!el) return;
   if (state.collab) {
-    el.innerHTML = '<span class="dot ok"></span>Saved';
+    el.innerHTML = '<span class="dot ok"></span>' + t('saved');
   } else {
-    el.innerHTML = '<span class="dot offline"></span>Local only';
+    el.innerHTML = '<span class="dot offline"></span>' + t('local_only');
   }
   clearTimeout(saveStateTimer);
 }
@@ -1131,7 +1181,7 @@ window.__hceMarkSaved = markSaved;
 function markSaving() {
   const el = document.getElementById('save-state');
   if (!el) return;
-  el.innerHTML = '<span class="dot live"></span>Saving…';
+  el.innerHTML = '<span class="dot live"></span>' + t('saving');
   clearTimeout(saveStateTimer);
   saveStateTimer = setTimeout(markSaved, 900);
 }
