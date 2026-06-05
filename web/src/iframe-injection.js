@@ -611,6 +611,13 @@ export function buildIframeScript() {
       hideTools();
     }
 
+    // Apply a persisted inline style to an element (remote style change, or a
+    // refresh re-applying styles the structural patch wouldn't otherwise sync).
+    if (d.cmd === 'set-style') {
+      var sel = document.querySelector('[data-block-id="' + d.id + '"]');
+      if (sel) sel.style.cssText = d.style || '';
+    }
+
     if (d.cmd === 'insert') {
       // Generic insert: { afterId | parentId+position: 'first'|'last', html }
       var anchor, position;
@@ -739,6 +746,18 @@ export function buildIframeScript() {
       if (s.el && s.el.style) s.el.style.cssText = s.css;
     });
   }
+  // Collect { id, style } for every affected element so the parent can write
+  // the inline styles back into the skeleton (→ persists across refresh).
+  function stylesPayloadFrom(snap) {
+    var out = [];
+    snap.forEach(function(s) {
+      if (s.el && s.el.getAttribute) {
+        var id = s.el.getAttribute('data-block-id');
+        if (id) out.push({ id: id, style: s.el.style.cssText });
+      }
+    });
+    return out;
+  }
   function maybeStartStyleChange(target) {
     if (!target) return;
     if (preChangeSnap && preChangeTarget === target) return; // 已经在记录
@@ -764,20 +783,25 @@ export function buildIframeScript() {
     }
     preChangeSnap = null;
     preChangeTarget = null;
-    // Notify parent — it owns the chronological undo log.
-    window.parent.postMessage({ type: 'style-committed' }, '*');
+    // Tell the parent: log it for undo AND persist the inline styles.
+    window.parent.postMessage({ type: 'style-committed', styles: stylesPayloadFrom(after) }, '*');
   }
   function undoStyleHistory() {
     commitStyleChange(); // 提交任何 pending
     if (styleHistoryPtr < 0) return false;
-    applyStyleSnap(styleHistory[styleHistoryPtr].before);
+    var snap = styleHistory[styleHistoryPtr].before;
+    applyStyleSnap(snap);
     styleHistoryPtr--;
+    // Persist the reverted styles (no new undo entry).
+    window.parent.postMessage({ type: 'style-persist', styles: stylesPayloadFrom(snap) }, '*');
     return true;
   }
   function redoStyleHistory() {
     if (styleHistoryPtr >= styleHistory.length - 1) return false;
     styleHistoryPtr++;
-    applyStyleSnap(styleHistory[styleHistoryPtr].after);
+    var snap = styleHistory[styleHistoryPtr].after;
+    applyStyleSnap(snap);
+    window.parent.postMessage({ type: 'style-persist', styles: stylesPayloadFrom(snap) }, '*');
     return true;
   }
   // ⌘Z / ⌘⇧Z — just forward to the parent. The parent (room.js) owns the

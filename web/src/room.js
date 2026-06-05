@@ -503,6 +503,20 @@ function applyStructuralPatch() {
     sendToIframe({ cmd: 'set-block-text', id: b.id, text: b.text });
   });
 
+  // 4. Reconcile inline styles for elements present in both — this is how a
+  // remote style change (or a refresh restoring saved styles) reaches the view,
+  // since steps 1–2 only handle added/removed elements.
+  newIds.forEach(id => {
+    if (!oldIds.has(id)) return;
+    const nEl = newDoc.querySelector(`[data-block-id="${id}"]`);
+    const oEl = iframeDoc.querySelector(`[data-block-id="${id}"]`);
+    if (!nEl || !oEl) return;
+    const nStyle = nEl.getAttribute('style') || '';
+    if (nStyle !== (oEl.getAttribute('style') || '')) {
+      sendToIframe({ cmd: 'set-style', id, style: nStyle });
+    }
+  });
+
   return true;
 }
 
@@ -527,7 +541,14 @@ function handleIframeMessage(e) {
   }
 
   if (d.type === 'style-committed') {
+    persistStyleChanges(d.styles);   // write inline styles into the skeleton
     logStyleAction();
+  }
+
+  // Style undo/redo re-applied styles in the iframe — persist, but don't log
+  // a new undo step (the style history already moved).
+  if (d.type === 'style-persist') {
+    persistStyleChanges(d.styles);
   }
 
   if (d.type === 'comment-toggle-select') {
@@ -1032,6 +1053,29 @@ function wireUndoToCollab() {
     undoStack.push({ type: 'yjs' });
     redoStack.length = 0;
   });
+}
+
+// Write the iframe's inline-style changes back into state.skeleton and persist
+// them over collab (STYLE_ORIGIN) so they survive a refresh and reach others.
+function persistStyleChanges(styles) {
+  if (!state.skeleton || !styles || !styles.length) return;
+  const doc = new DOMParser().parseFromString(state.skeleton, 'text/html');
+  let changed = false;
+  styles.forEach(({ id, style }) => {
+    const el = doc.querySelector(`[data-block-id="${id}"]`);
+    if (!el) return;
+    const cur = el.getAttribute('style') || '';
+    const next = style || '';
+    if (next) {
+      if (cur !== next) { el.setAttribute('style', next); changed = true; }
+    } else if (el.hasAttribute('style')) {
+      el.removeAttribute('style'); changed = true;
+    }
+  });
+  if (!changed) return;
+  state.skeleton = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+  state.collab?.persistSkeleton?.(state.skeleton);
+  markSaving();
 }
 
 function logStyleAction() {

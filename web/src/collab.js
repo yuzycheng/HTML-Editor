@@ -57,6 +57,12 @@ export async function connectCollab(state, handlers) {
   // to ignore self-echo, and the UndoManager tracks only edits with
   // this origin so it doesn't try to undo remote collaborators.
   const LOCAL_ORIGIN = 'hce-local';
+  // Style changes persist the skeleton under their OWN origin. Like LOCAL it's
+  // skipped by our observers (so it never triggers a local re-render that would
+  // wipe the live styling), but unlike LOCAL it is NOT tracked by the
+  // UndoManager — style undo/redo is owned by the iframe's own style history,
+  // and we don't want a duplicate Yjs undo step for the same change.
+  const STYLE_ORIGIN = 'hce-style';
 
   // ── Undo manager: tracks our own edits across blocks/meta/comments ──
   const undoMgr = new Y.UndoManager([yBlocks, yMeta, yComments], {
@@ -170,7 +176,7 @@ export async function connectCollab(state, handlers) {
   // Skipping this caused the "blank screen / scroll jumps on undo"
   // instability.
   yMeta.observe((event, tx) => {
-    if (tx.origin === LOCAL_ORIGIN) return;
+    if (tx.origin === LOCAL_ORIGIN || tx.origin === STYLE_ORIGIN) return;
     if (!event.keysChanged.has('skeleton')) return;
     const nextSkeleton = yMeta.get('skeleton');
     // Never blank the document. If an undo deleted the skeleton key (this
@@ -253,6 +259,12 @@ export async function connectCollab(state, handlers) {
         if (insertStr) ytext.insert(prefix, insertStr);
       }, LOCAL_ORIGIN);
       lastSeenTexts.set(id, text);
+    },
+    // Persist a skeleton whose ONLY change is inline styling (colour, size,
+    // bold…). Uses STYLE_ORIGIN so it survives refresh + reaches collaborators,
+    // without a local re-render or a duplicate Yjs undo step.
+    persistSkeleton(skeleton) {
+      yDoc.transact(() => { yMeta.set('skeleton', skeleton); }, STYLE_ORIGIN);
     },
     onLocalStructureChange(skeleton, blocks) {
       // Guarantee the skeleton key already exists from an UNtagged write. If
