@@ -127,7 +127,6 @@ function applyStaticI18n() {
   document.querySelectorAll('[data-i18n]').forEach(el => { const k = el.getAttribute('data-i18n'); if (I18N[k]) el.innerHTML = t(k); });
   document.querySelectorAll('[data-i18n-ph]').forEach(el => { const k = el.getAttribute('data-i18n-ph'); if (I18N[k]) el.placeholder = t(k); });
   document.querySelectorAll('[data-i18n-title]').forEach(el => { const k = el.getAttribute('data-i18n-title'); if (I18N[k]) el.title = t(k); });
-  const lbl = document.querySelector('#lang-toggle .lang-label'); if (lbl) lbl.textContent = t('lang_label');
 }
 let lastUsers = null;
 function applyUsers(users) {
@@ -154,9 +153,8 @@ async function init() {
   const params = new URLSearchParams(location.search);
   state.roomId = params.get('room') || 'local-' + Math.random().toString(36).slice(2, 8);
 
-  // Apply the saved language to the static chrome + wire the globe toggle.
+  // Apply the saved language (chosen on the homepage) to the static chrome.
   applyStaticI18n();
-  document.getElementById('lang-toggle')?.addEventListener('click', () => setLang(hceLang === 'zh' ? 'en' : 'zh'));
 
   // Identity
   state.user = loadUser() || await promptForNickname({ allowCancel: false });

@@ -90,24 +90,6 @@
     margin-left: auto;
     margin-right: 8px;
   }
-  .topbar .lang-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    background: transparent;
-    border: none;
-    padding: 4px 4px;
-    margin-right: 4px;
-    cursor: pointer;
-    color: var(--muted);
-    font-size: var(--text-sm);
-    line-height: 1;
-    flex-shrink: 0;
-    transition: color 100ms;
-  }
-  .topbar .lang-toggle:hover { color: var(--ink); }
-  .topbar .lang-toggle .globe { width: 17px; height: 17px; display: block; }
-  .topbar .lang-toggle .lang-label { font-weight: 500; }
   .topbar .avatar {
     width: 26px; height: 26px;
     background: var(--ink);
@@ -672,13 +654,6 @@
   <span class="fname" id="fname">—</span>
 
   <div class="users" id="users"></div>
-
-  <button class="lang-toggle" id="lang-toggle" type="button" title="切换语言 / Switch language" aria-label="Switch language">
-    <svg class="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>
-    </svg>
-    <span class="lang-label">EN</span>
-  </button>
 
   <div class="modes" role="tablist" aria-label="Mode">
     <button class="mode-btn active" data-mode="edit"    onclick="setMode('edit')" data-i18n="edit">Edit</button>
