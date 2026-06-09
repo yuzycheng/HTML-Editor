@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HTML Editor · Room</title>
+<!-- Self-hosted collab libs (no CDN) — keep before any module script. -->
+<script type="importmap">
+{
+  "imports": {
+    "yjs": "./vendor/yjs.js",
+    "y-partykit/provider": "./vendor/y-partykit-provider.js"
+  }
+}
+</script>
 <link rel="icon" type="image/svg+xml" href="./assets/logo-mark.svg">
 <link rel="stylesheet" href="./styles/design.css">
 <style>

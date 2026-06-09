@@ -10,15 +10,20 @@
 //    { user: { id, name, color } }
 // ─────────────────────────────────────────────────
 
+// These come from locally-vendored bundles (web/vendor/) resolved via the
+// import map in room.html — NOT a CDN. Self-hosting avoids esm.sh hanging on
+// networks where it's slow/blocked (corporate firewalls, mainland China),
+// which would otherwise stall the whole editor on a loading spinner.
+//
 // IMPORTANT: y-partykit (and its y-protocols dependency) must share the EXACT
-// SAME yjs module instance as the `Y` we import here. esm.sh otherwise bundles
-// y-partykit's own copy of yjs, giving two instances — the late joiner then
-// receives blocks built by the provider's yjs while our UndoManager runs on
-// the other instance, so its constructor/scope checks fail and the shared
-// party "cannot undo". `?deps=yjs@13.6.20` pins the whole tree to one instance.
-// (Symptom of breakage: console "Yjs was already imported".)
-import * as Y from 'https://esm.sh/yjs@13.6.20';
-import YPartyKitProvider from 'https://esm.sh/y-partykit@0.0.32/provider?deps=yjs@13.6.20';
+// SAME yjs module instance as the `Y` we import here. The provider bundle was
+// built with yjs marked external, so its internal `import 'yjs'` resolves —
+// via the same import map — to the one vendor/yjs.js the app uses. One yjs
+// instance keeps UndoManager's constructor/scope checks valid; two instances
+// give the "Yjs was already imported" breakage where late joiners can't undo.
+// (Rebuild: esbuild entry-yjs.js --bundle --format=esm; provider with --external:yjs.)
+import * as Y from 'yjs';
+import YPartyKitProvider from 'y-partykit/provider';
 
 // Decide which PartyKit host to talk to.
 //
