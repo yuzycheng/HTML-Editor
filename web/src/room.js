@@ -189,13 +189,28 @@ async function init() {
   }
   if (hasLocalFile) doInitialRender();
 
+  // Watchdog: never let the canvas spin forever. The non-local path defers
+  // the first render until collab delivers the real document — but if collab
+  // is slow or unreachable (CDN like esm.sh blocked, WebSocket firewalled,
+  // flaky network) the awaited import/connect below can stall, and the
+  // post-collab safety net never runs. This timer fires independently of any
+  // await, so we always render *something* (real content if collab beat it,
+  // otherwise the parsed/DEMO fallback). doInitialRender() is idempotent.
+  const renderWatchdog = setTimeout(() => doInitialRender(), 3500);
+
   window.addEventListener('message', handleIframeMessage);
 
-  // Try collab (best-effort)
+  // Try collab (best-effort). Bounded by a timeout so a blocked CDN
+  // (esm.sh) or firewalled WebSocket can't leave this await pending forever
+  // and stall the rest of init — we fall through to single-user editing.
   if (params.get('collab') !== 'off') {
     try {
-      const { connectCollab } = await import('./collab.js');
-      state.collab = await connectCollab(state, {
+      let collabTimer;
+      const collabTimeout = new Promise((_, rej) => {
+        collabTimer = setTimeout(() => rej(new Error('collab connect timed out')), 8000);
+      });
+      const { connectCollab } = await Promise.race([import('./collab.js'), collabTimeout]);
+      state.collab = await Promise.race([connectCollab(state, {
         onBlockTextChange: (id, text) => {
           // While the iframe is being rebuilt due to a structural change,
           // its DOM is mid-flight — sending set-block-text would race with
@@ -227,7 +242,8 @@ async function init() {
           renderComments();
           markSaved();
         },
-      });
+      }), collabTimeout]);
+      clearTimeout(collabTimer);
       wireUndoToCollab();
       console.log('[hce] collab connected');
     } catch (err) {
@@ -237,6 +253,7 @@ async function init() {
 
   // Safety net — if collab failed (no server) or the room was empty, we
   // never rendered. Fall back to whatever we parsed locally (DEMO or file).
+  clearTimeout(renderWatchdog);
   doInitialRender();
 
   // Keyboard: ⌘Z / ⌘⇧Z
@@ -401,8 +418,9 @@ function showCanvasLoading() {
 
 function renderIframe() {
   // Never render a blank/"undefined" document. A falsy skeleton means an undo
-  // wiped it (or state isn't ready) — keep the current iframe untouched.
-  if (!state.skeleton) return;
+  // wiped it (or state isn't ready) — keep the current iframe untouched. Still
+  // clear the loading overlay so we never leave the user staring at a spinner.
+  if (!state.skeleton) { hideCanvasLoading(); return; }
   rebuildingIframe = true;
   const iframe = document.getElementById('iframe');
   // Capture scroll so we can restore it once the new doc loads.
