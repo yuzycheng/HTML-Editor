@@ -10,6 +10,8 @@
 [![Status](https://img.shields.io/badge/status-beta-fde68a?style=flat-square)](#)
 [![Stack](https://img.shields.io/badge/stack-Yjs_·_PartyKit-7c3aed?style=flat-square)](#stack)
 
+**English** · [中文](./README.zh-CN.md)
+
 </div>
 
 ---
@@ -29,8 +31,10 @@
 |---|---|
 | ✏️ | **Edit any text** in place — without breaking the HTML framework |
 | ➕ | **Add or remove blocks** — paragraphs, cards, table rows, columns |
-| 💬 | **Comment anywhere** — single elements, multi-selection, or whole-doc |
+| 🎨 | **Restyle anything** — text / fill / border color, font size; even small chips, tables, SVG |
+| 💬 | **Comment anywhere** — single elements, multi-selection, or whole-doc; anchored notes tell the AI exactly which block to change |
 | 👥 | **Real-time collab** — share a link, see edits live |
+| 🖼️ | **Slide decks** — when an interactive deck is detected, flip with ←/→ or the pager |
 | ↩️ | **Undo / redo** across text and structural changes |
 | 📤 | **Export to AI** — clean HTML download or Markdown prompt for Claude / GPT |
 
