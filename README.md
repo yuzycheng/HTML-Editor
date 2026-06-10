@@ -1,8 +1,10 @@
 <div align="center">
 
+<img src="./web/assets/logo-mark.svg" width="84" alt="HTML Editor logo">
+
 # HTML Editor
 
-**Collaborative editor for AI-generated HTML — edit, comment, hand back to AI.**
+**Drop in AI-generated HTML and revise it together — edit text, restyle, comment, then hand it back to the AI.**
 
 [![Try it](https://img.shields.io/badge/▸_try_it-yuzycheng.github.io%2FHTML--Editor-0969da?style=for-the-badge)](https://yuzycheng.github.io/HTML-Editor/)
 

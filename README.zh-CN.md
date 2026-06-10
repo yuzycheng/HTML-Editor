@@ -1,8 +1,10 @@
 <div align="center">
 
+<img src="./web/assets/logo-mark.svg" width="84" alt="HTML Editor logo">
+
 # HTML Editor
 
-**给 AI 生成的 HTML 用的协作编辑器 —— 改文字、留批注、再一键交回 AI。**
+**AI 写的 HTML，拖进来就能一起改 —— 改文字、调样式、留批注，再一键交回 AI。**
 
 [![立即体验](https://img.shields.io/badge/▸_立即体验-yuzycheng.github.io%2FHTML--Editor-0969da?style=for-the-badge)](https://yuzycheng.github.io/HTML-Editor/)
 
@@ -40,14 +42,14 @@
 
 ## 为什么做这个
 
-AI 生成的 HTML（幻灯片、PRD、文档、落地页）改起来很麻烦：
+用 AI 生成网页、幻灯片、PRD、落地页是越来越快了，可一到「改」就开始头疼：
 
-- 直接改源码对非开发者太底层
-- 每个小改动都回到对话框让 AI 重写，太慢
-- 没有好办法留下「结构性」的反馈让 AI 照着改
-- 团队没有一个能一起 review、一起改 HTML 的协作空间
+- 想改源码？对不写代码的人来说太底层了
+- 想让 AI 改？每个小改动都得回对话框重写一版，来回拉扯
+- 想留点意见？又没地方把「这块要怎么改」精准地标给 AI
+- 想拉同事一起看？根本没有一个能一起改 HTML 的地方
 
-这个工具夹在 AI 和团队之间：人来 review、批注，然后把「HTML + 批注」整个打包交回给 AI 再优化一轮。
+所以做了这个小工具，让它夹在 AI 和团队中间：人这边看一看、改一改、标几句批注，再把「HTML + 批注」整个打包丢回给 AI 接着优化。
 
 ## 技术栈
 
