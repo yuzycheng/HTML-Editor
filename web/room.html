@@ -191,40 +191,45 @@
     transition: opacity .35s ease;
   }
   .canvas-loading.hide { opacity: 0; pointer-events: none; }
-  /* Slide-deck pager (hidden unless a deck is detected) */
+  /* Slide-deck pager — subtle, lives in the top bar; hidden unless a deck
+     is detected. Ghost buttons that blend into the white bar. */
   .slide-pager { display: none; }
-  body.is-slides .slide-pager {
-    display: flex;
-    gap: 6px;
+  body.is-slides .topbar .slide-pager {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    /* Centered in the bar, independent of the left/right clusters. Sits on a
+       small bar-coloured patch above everything so it never collides with the
+       filename text on narrower windows. */
     position: absolute;
     left: 50%;
-    bottom: 20px;
-    transform: translateX(-50%);
-    z-index: 30;
-    background: rgba(20, 22, 26, 0.82);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
-    border-radius: 999px;
-    padding: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 5;
+    padding: 0 3px;
+    border-radius: 8px;
+    background: var(--page-bg);
   }
   .slide-pager .sp-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
     border: none;
     background: transparent;
-    color: #fff;
-    font-size: 24px;
+    color: var(--muted);
+    font-size: 20px;
     line-height: 1;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 100ms;
+    transition: background 100ms, color 100ms;
   }
-  .slide-pager .sp-btn:hover { background: rgba(255, 255, 255, 0.16); }
-  .slide-pager .sp-btn:active { background: rgba(255, 255, 255, 0.30); }
+  .slide-pager .sp-btn:hover { background: var(--grey-1, #f0f0ee); color: var(--ink); }
+  .slide-pager .sp-btn:active { background: var(--grey-2, #e4e4e2); }
+  /* No focus box around the arrows, ever (keys already navigate). */
+  .slide-pager .sp-btn:focus,
+  .slide-pager .sp-btn:focus-visible { outline: none; box-shadow: none; }
   .canvas-loading .cl-spin {
     width: 34px; height: 34px;
     border-radius: 50%;
@@ -701,6 +706,12 @@
 
   <div class="users" id="users"></div>
 
+  <!-- Slide pager — subtle, in the bar; only shown when a deck is detected. -->
+  <div class="slide-pager" id="slide-pager">
+    <button class="sp-btn" id="slide-prev" type="button" data-i18n-title="slide_prev" title="上一页（←）" aria-label="Previous slide">‹</button>
+    <button class="sp-btn" id="slide-next" type="button" data-i18n-title="slide_next" title="下一页（→）" aria-label="Next slide">›</button>
+  </div>
+
   <div class="modes" role="tablist" aria-label="Mode">
     <button class="mode-btn active" data-mode="edit"    onclick="setMode('edit')" data-i18n="edit">Edit</button>
     <button class="mode-btn"        data-mode="comment" onclick="setMode('comment')" data-i18n="comment">Comment</button>
@@ -744,11 +755,6 @@
       <div class="cl-spin"></div>
       <div class="cl-text" data-i18n="loading">Loading document…</div>
       <div class="cl-sub" data-i18n="loading_sub">This can take a few seconds for large files.</div>
-    </div>
-    <!-- Slide-deck pager — only shown when an interactive deck is detected. -->
-    <div class="slide-pager" id="slide-pager">
-      <button class="sp-btn" id="slide-prev" type="button" data-i18n-title="slide_prev" title="上一页（←）" aria-label="Previous slide">‹</button>
-      <button class="sp-btn" id="slide-next" type="button" data-i18n-title="slide_next" title="下一页（→）" aria-label="Next slide">›</button>
     </div>
   </div>
 
