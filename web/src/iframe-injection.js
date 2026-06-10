@@ -516,12 +516,78 @@ export function buildIframeScript() {
     }
   }, true);
 
+  // ─── [ADDITION · slide-deck navigation] ───
+  // Uploaded interactive decks (reveal.js, impress.js, or custom pages that
+  // listen for Arrow keys) need to flip slides even while being edited. Try a
+  // known API first, then fall back to dispatching a real Arrow keydown so the
+  // deck's own handler runs (synthetic events default keyCode/which to 0, so
+  // we redefine them — many decks branch on keyCode 37/39).
+  var slidesMode = false;
+  var dispatchingNav = false;
+  function navSlide(dir) {
+    var right = (dir !== 'left');
+    try {
+      if (window.Reveal && typeof window.Reveal.right === 'function') {
+        right ? window.Reveal.right() : window.Reveal.left();
+        return;
+      }
+    } catch (err) {}
+    try {
+      if (typeof window.impress === 'function') {
+        var api = window.impress();
+        if (api && right && api.next) { api.next(); return; }
+        if (api && !right && api.prev) { api.prev(); return; }
+      }
+    } catch (err) {}
+    var key = right ? 'ArrowRight' : 'ArrowLeft';
+    var code = right ? 39 : 37;
+    dispatchingNav = true;
+    try {
+      ['keydown', 'keyup'].forEach(function(type) {
+        var ev;
+        try { ev = new KeyboardEvent(type, { key: key, code: key, bubbles: true, cancelable: true }); }
+        catch (err2) { ev = document.createEvent('Event'); ev.initEvent(type, true, true); }
+        try {
+          Object.defineProperty(ev, 'keyCode', { get: function() { return code; } });
+          Object.defineProperty(ev, 'which', { get: function() { return code; } });
+          Object.defineProperty(ev, 'key', { get: function() { return key; } });
+        } catch (err3) {}
+        // Dispatch on document only — it bubbles to window, and dispatching
+        // on body too would bubble back to document and double-fire the deck.
+        document.dispatchEvent(ev);
+      });
+    } finally { dispatchingNav = false; }
+  }
+  // Keyboard flip: in slides mode, Left/Right flips — unless the user is
+  // actively editing text (then arrows move the caret; use the on-screen
+  // buttons to flip mid-edit). Capture phase + stop so the deck doesn't also
+  // fire on the original key (we drive it ourselves to avoid double-advance).
+  document.addEventListener('keydown', function(e) {
+    if (!slidesMode || dispatchingNav) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    var ae = document.activeElement;
+    var editing = ae && ae.closest && ae.closest('[contenteditable=""],[contenteditable="true"],[data-hce-text]');
+    if (editing) {
+      // Editing text: let the arrow move the caret, but stop the deck's own
+      // global key handler from also flipping the slide out from under you.
+      // (Use the on-screen ‹ › buttons to flip while editing.)
+      e.stopImmediatePropagation();
+      return;
+    }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    navSlide(e.key === 'ArrowRight' ? 'right' : 'left');
+  }, true);
+
   // ─── Parent → iframe commands ─────────────────
   window.addEventListener('message', function(e) {
     var d = e.data;
     if (!d || d._src !== 'hce') return;
 
     if (d.cmd === 'set-mode') applyMode(d.mode);
+
+    if (d.cmd === 'set-slides') { slidesMode = !!d.on; }
+    if (d.cmd === 'nav-slide') { navSlide(d.dir); }
 
     if (d.cmd === 'set-lang') {
       panelLang = (d.lang === 'zh') ? 'zh' : 'en';

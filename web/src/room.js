@@ -119,6 +119,7 @@ const I18N = {
   t_replaced:{en:'Replaced with ',zh:'已替换为 '}, t_cmt_saved:{en:'Comment saved',zh:'批注已保存'}, t_cmt_updated:{en:'Comment updated',zh:'批注已更新'},
   t_col_removed:{en:'Column removed',zh:'已删除该列'}, t_col_dup:{en:'Column duplicated',zh:'已复制该列'}, t_dup:{en:'Duplicated',zh:'已复制'}, t_removed:{en:'Removed',zh:'已删除'}, t_downloaded:{en:'Downloaded ',zh:'已下载 '},
   lang_label:{en:'EN',zh:'CN'},
+  slide_prev:{en:'Previous slide (←)',zh:'上一页（←）'}, slide_next:{en:'Next slide (→)',zh:'下一页（→）'},
 };
 let hceLang = localStorage.getItem('hce-lang') || ((navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
 function t(key) { const e = I18N[key]; if (!e) return key; return e[hceLang] != null ? e[hceLang] : (e.en || key); }
@@ -156,6 +157,10 @@ async function init() {
   // Apply the saved language (chosen on the homepage) to the static chrome.
   applyStaticI18n();
 
+  // Slide-deck pager buttons (work even while editing text — unlike the keys).
+  document.getElementById('slide-prev')?.addEventListener('click', () => sendToIframe({ cmd: 'nav-slide', dir: 'left' }));
+  document.getElementById('slide-next')?.addEventListener('click', () => sendToIframe({ cmd: 'nav-slide', dir: 'right' }));
+
   // Identity
   state.user = loadUser() || await promptForNickname({ allowCancel: false });
   saveUser(state.user);
@@ -174,6 +179,13 @@ async function init() {
   const parsed = parseHTML(initialHTML);
   state.skeleton = parsed.skeleton;
   state.blocks = parsed.blocks;
+
+  // Is this an interactive slide deck? If so we enable keyboard ←/→ flipping
+  // and show on-screen pager buttons. Detect known frameworks, or any page
+  // whose own scripts react to the Arrow keys (a strong "keyboard-navigable
+  // deck" signal), or a run of full-page <section>s.
+  state.isSlides = detectSlides(initialHTML);
+  if (state.isSlides) document.body.classList.add('is-slides');
 
   // If we have the file locally (uploader's tab), render immediately.
   // Otherwise (joined a shared room link) DEFER the initial render until
@@ -267,6 +279,18 @@ async function init() {
     if (e.shiftKey) performRedo(); else performUndo();
   });
 
+  // Slide decks: ←/→ flips pages. This fires when the top page has focus
+  // (clicked a toolbar/sidebar); when the canvas iframe has focus, the
+  // injected script handles it there instead.
+  window.addEventListener('keydown', (e) => {
+    if (!state.isSlides) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const tgt = e.target;
+    if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) return;
+    e.preventDefault();
+    sendToIframe({ cmd: 'nav-slide', dir: e.key === 'ArrowRight' ? 'right' : 'left' });
+  });
+
   // Outside click closes export / share menus
   document.addEventListener('click', (e) => {
     [
@@ -317,6 +341,18 @@ function replaceDocument(file) {
 }
 
 // ─── User identity ──────────────────────────────
+function detectSlides(html) {
+  if (!html) return false;
+  // Known deck frameworks.
+  if (/\b(reveal\.js|Reveal\.initialize|class\s*=\s*["'][^"']*\breveal\b|impress\.js|impress\(\)|id\s*=\s*["']impress["']|remark\.create|deck\.js|fullpage|swiper|webslides|\bSlides\b)/i.test(html)) return true;
+  // Any page that wires its own Arrow-key navigation = keyboard-driven deck.
+  if (/Arrow(Left|Right)|keyCode\s*(===?|==)\s*3[79]\b|which\s*(===?|==)\s*3[79]\b|\.key\s*(===?|==)\s*["']Arrow/i.test(html)) return true;
+  // A run of full-page <section>s (classic slide structure).
+  const sections = (html.match(/<section[\s>]/gi) || []).length;
+  if (sections >= 3) return true;
+  return false;
+}
+
 function loadUser() {
   try { return JSON.parse(localStorage.getItem('hce-user') || ''); } catch { return null; }
 }
@@ -640,6 +676,7 @@ function handleIframeMessage(e) {
 
   if (d.type === 'ready') {
     sendToIframe({ cmd: 'set-lang', lang: hceLang });   // localize the in-iframe panel
+    if (state.isSlides) sendToIframe({ cmd: 'set-slides', on: true });  // enable ←/→ flipping
     pushSelectionToIframe();
     const iframe = document.getElementById('iframe');
     if (pendingScroll) {

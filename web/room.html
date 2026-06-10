@@ -191,6 +191,40 @@
     transition: opacity .35s ease;
   }
   .canvas-loading.hide { opacity: 0; pointer-events: none; }
+  /* Slide-deck pager (hidden unless a deck is detected) */
+  .slide-pager { display: none; }
+  body.is-slides .slide-pager {
+    display: flex;
+    gap: 6px;
+    position: absolute;
+    left: 50%;
+    bottom: 20px;
+    transform: translateX(-50%);
+    z-index: 30;
+    background: rgba(20, 22, 26, 0.82);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border-radius: 999px;
+    padding: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  }
+  .slide-pager .sp-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: #fff;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 100ms;
+  }
+  .slide-pager .sp-btn:hover { background: rgba(255, 255, 255, 0.16); }
+  .slide-pager .sp-btn:active { background: rgba(255, 255, 255, 0.30); }
   .canvas-loading .cl-spin {
     width: 34px; height: 34px;
     border-radius: 50%;
@@ -710,6 +744,11 @@
       <div class="cl-spin"></div>
       <div class="cl-text" data-i18n="loading">Loading document…</div>
       <div class="cl-sub" data-i18n="loading_sub">This can take a few seconds for large files.</div>
+    </div>
+    <!-- Slide-deck pager — only shown when an interactive deck is detected. -->
+    <div class="slide-pager" id="slide-pager">
+      <button class="sp-btn" id="slide-prev" type="button" data-i18n-title="slide_prev" title="上一页（←）" aria-label="Previous slide">‹</button>
+      <button class="sp-btn" id="slide-next" type="button" data-i18n-title="slide_next" title="下一页（→）" aria-label="Next slide">›</button>
     </div>
   </div>
 
