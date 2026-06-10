@@ -191,16 +191,14 @@
     transition: opacity .35s ease;
   }
   .canvas-loading.hide { opacity: 0; pointer-events: none; }
-  /* Slide-deck pager — subtle, lives in the top bar; hidden unless a deck
-     is detected. Ghost buttons that blend into the white bar. */
-  .slide-pager { display: none; }
-  body.is-slides .topbar .slide-pager {
+  /* Slide-deck pager — always present, centered & subtle in the top bar.
+     Active only when an interactive deck is detected; otherwise the arrows
+     sit in a light, disabled (non-clickable) state. Centered on a small
+     bar-coloured patch so it never collides with the filename text. */
+  .topbar .slide-pager {
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    /* Centered in the bar, independent of the left/right clusters. Sits on a
-       small bar-coloured patch above everything so it never collides with the
-       filename text on narrower windows. */
     position: absolute;
     left: 50%;
     top: 50%;
@@ -230,6 +228,9 @@
   /* No focus box around the arrows, ever (keys already navigate). */
   .slide-pager .sp-btn:focus,
   .slide-pager .sp-btn:focus-visible { outline: none; box-shadow: none; }
+  /* Not a slide deck → light, non-clickable. */
+  .slide-pager .sp-btn:disabled { color: #cdcdca; cursor: default; }
+  .slide-pager .sp-btn:disabled:hover { background: transparent; color: #cdcdca; }
   .canvas-loading .cl-spin {
     width: 34px; height: 34px;
     border-radius: 50%;
@@ -708,8 +709,8 @@
 
   <!-- Slide pager — subtle, in the bar; only shown when a deck is detected. -->
   <div class="slide-pager" id="slide-pager">
-    <button class="sp-btn" id="slide-prev" type="button" data-i18n-title="slide_prev" title="上一页（←）" aria-label="Previous slide">‹</button>
-    <button class="sp-btn" id="slide-next" type="button" data-i18n-title="slide_next" title="下一页（→）" aria-label="Next slide">›</button>
+    <button class="sp-btn" id="slide-prev" type="button" disabled data-i18n-title="slide_prev" title="上一页（←）" aria-label="Previous slide">‹</button>
+    <button class="sp-btn" id="slide-next" type="button" disabled data-i18n-title="slide_next" title="下一页（→）" aria-label="Next slide">›</button>
   </div>
 
   <div class="modes" role="tablist" aria-label="Mode">

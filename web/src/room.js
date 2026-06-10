@@ -185,7 +185,11 @@ async function init() {
   // whose own scripts react to the Arrow keys (a strong "keyboard-navigable
   // deck" signal), or a run of full-page <section>s.
   state.isSlides = detectSlides(initialHTML);
-  if (state.isSlides) document.body.classList.add('is-slides');
+  if (state.isSlides) {
+    document.body.classList.add('is-slides');
+    document.getElementById('slide-prev')?.removeAttribute('disabled');
+    document.getElementById('slide-next')?.removeAttribute('disabled');
+  }
 
   // If we have the file locally (uploader's tab), render immediately.
   // Otherwise (joined a shared room link) DEFER the initial render until
