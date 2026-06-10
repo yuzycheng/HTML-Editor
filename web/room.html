@@ -198,7 +198,7 @@
   .topbar .slide-pager {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: 7px;
     position: absolute;
     left: 50%;
     top: 50%;
@@ -208,29 +208,32 @@
     border-radius: 8px;
     background: var(--page-bg);
   }
+  /* Circular outlined buttons — reads as a slide pager (carousel-style),
+     not undo/redo. */
   .slide-pager .sp-btn {
-    width: 28px;
-    height: 28px;
-    border-radius: 7px;
-    border: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid #d4d4d1;
     background: transparent;
     color: var(--muted);
-    font-size: 20px;
+    font-size: 16px;
     line-height: 1;
+    padding: 0 0 1px 0;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 100ms, color 100ms;
+    transition: background 100ms, color 100ms, border-color 100ms;
   }
-  .slide-pager .sp-btn:hover { background: var(--grey-1, #f0f0ee); color: var(--ink); }
+  .slide-pager .sp-btn:hover { background: var(--grey-1, #f0f0ee); border-color: var(--muted); color: var(--ink); }
   .slide-pager .sp-btn:active { background: var(--grey-2, #e4e4e2); }
   /* No focus box around the arrows, ever (keys already navigate). */
   .slide-pager .sp-btn:focus,
   .slide-pager .sp-btn:focus-visible { outline: none; box-shadow: none; }
-  /* Not a slide deck → light, non-clickable. */
-  .slide-pager .sp-btn:disabled { color: #cdcdca; cursor: default; }
-  .slide-pager .sp-btn:disabled:hover { background: transparent; color: #cdcdca; }
+  /* Not a slide deck → light circle, non-clickable. */
+  .slide-pager .sp-btn:disabled { color: #cdcdca; border-color: #e8e8e5; cursor: default; }
+  .slide-pager .sp-btn:disabled:hover { background: transparent; border-color: #e8e8e5; color: #cdcdca; }
   .canvas-loading .cl-spin {
     width: 34px; height: 34px;
     border-radius: 50%;
