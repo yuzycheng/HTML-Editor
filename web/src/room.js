@@ -184,12 +184,7 @@ async function init() {
   // and show on-screen pager buttons. Detect known frameworks, or any page
   // whose own scripts react to the Arrow keys (a strong "keyboard-navigable
   // deck" signal), or a run of full-page <section>s.
-  state.isSlides = detectSlides(initialHTML);
-  if (state.isSlides) {
-    document.body.classList.add('is-slides');
-    document.getElementById('slide-prev')?.removeAttribute('disabled');
-    document.getElementById('slide-next')?.removeAttribute('disabled');
-  }
+  setSlidesMode(detectSlides(initialHTML));
 
   // If we have the file locally (uploader's tab), render immediately.
   // Otherwise (joined a shared room link) DEFER the initial render until
@@ -243,6 +238,7 @@ async function init() {
         onCommentsChange: () => { renderComments(); markSaved(); },
         onUsersChange: (users) => { applyUsers(users); },
         onSkeletonChanged: () => {
+          refreshSlidesFromContent();   // late joiners: detect from synced doc
           if (!initialRendered) {
             // Late joiner first render — go straight to full render so the
             // user sees the actual room contents, not a flash of DEMO.
@@ -326,6 +322,7 @@ function replaceDocument(file) {
     const parsed = parseHTML(e.target.result);
     state.skeleton = parsed.skeleton;
     state.blocks = parsed.blocks;
+    setSlidesMode(detectSlides(e.target.result));   // re-detect for the new doc
     state.filename = file.name;
     document.getElementById('fname').textContent = file.name;
     touchRecent(state.roomId, file.name);
@@ -355,6 +352,26 @@ function detectSlides(html) {
   const sections = (html.match(/<section[\s>]/gi) || []).length;
   if (sections >= 3) return true;
   return false;
+}
+
+// Turn slide mode on/off: body class, the pager buttons' enabled state, and
+// tell the injected script. Kept idempotent so it's safe to call repeatedly.
+function setSlidesMode(on) {
+  state.isSlides = !!on;
+  document.body.classList.toggle('is-slides', state.isSlides);
+  const prev = document.getElementById('slide-prev');
+  const next = document.getElementById('slide-next');
+  if (prev) prev.disabled = !state.isSlides;
+  if (next) next.disabled = !state.isSlides;
+  sendToIframe({ cmd: 'set-slides', on: state.isSlides });
+}
+
+// One-way: enable slide mode once the (possibly collab-synced) content looks
+// like a deck. Used for people who JOIN a shared link — they have no local
+// file, so the deck only shows up after collab delivers the document.
+function refreshSlidesFromContent() {
+  if (state.isSlides) return;
+  if (detectSlides(state.skeleton)) setSlidesMode(true);
 }
 
 function loadUser() {
