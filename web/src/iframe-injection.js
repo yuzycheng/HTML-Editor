@@ -564,16 +564,23 @@ export function buildIframeScript() {
   // fire on the original key (we drive it ourselves to avoid double-advance).
   document.addEventListener('keydown', function(e) {
     if (!slidesMode || dispatchingNav) return;
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     var ae = document.activeElement;
     var editing = ae && ae.closest && ae.closest('[contenteditable=""],[contenteditable="true"],[data-hce-text]');
     if (editing) {
-      // Editing text: let the arrow move the caret, but stop the deck's own
-      // global key handler from also flipping the slide out from under you.
+      // Editing text: stop the deck from hijacking the keys it uses to flip
+      // slides — ESPECIALLY Space (most decks advance on it), plus arrows and
+      // page keys. We only stop propagation (not the default), so the space is
+      // still typed and the caret still moves; the deck just doesn't navigate.
       // (Use the on-screen ‹ › buttons to flip while editing.)
-      e.stopImmediatePropagation();
+      var k = e.key;
+      if (k === ' ' || k === 'Spacebar' || k === 'ArrowLeft' || k === 'ArrowRight' ||
+          k === 'ArrowUp' || k === 'ArrowDown' || k === 'PageUp' || k === 'PageDown' ||
+          k === 'Home' || k === 'End') {
+        e.stopImmediatePropagation();
+      }
       return;
     }
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     e.stopImmediatePropagation();
     navSlide(e.key === 'ArrowRight' ? 'right' : 'left');
