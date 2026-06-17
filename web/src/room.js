@@ -345,7 +345,9 @@ function replaceDocument(file) {
 function detectSlides(html) {
   if (!html) return false;
   // Known deck frameworks.
-  if (/\b(reveal\.js|Reveal\.initialize|class\s*=\s*["'][^"']*\breveal\b|impress\.js|impress\(\)|id\s*=\s*["']impress["']|remark\.create|deck\.js|fullpage|swiper|webslides|\bSlides\b)/i.test(html)) return true;
+  if (/\b(reveal\.js|Reveal\.initialize|impress\.js|impress\(\)|id\s*=\s*["']impress["']|remark\.create|deck\.js|fullpage|swiper|webslides)\b/i.test(html)) return true;
+  // class="reveal" / "slide" / "slides" — the common hand-made-deck markers.
+  if (/class\s*=\s*["'][^"']*\b(reveal|slides?)\b/i.test(html)) return true;
   // Any page that wires its own Arrow-key navigation = keyboard-driven deck.
   if (/Arrow(Left|Right)|keyCode\s*(===?|==)\s*3[79]\b|which\s*(===?|==)\s*3[79]\b|\.key\s*(===?|==)\s*["']Arrow/i.test(html)) return true;
   // A run of full-page <section>s (classic slide structure).

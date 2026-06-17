@@ -14,6 +14,11 @@
 export function buildIframeScript() {
   return `
 <style id="__hce-style">
+  /* Editor scroll fix — many uploaded pages (esp. slide decks) set
+     overflow:hidden on html/body; in the editor the iframe is short, so the
+     bottom gets clipped with no way to scroll. Force the document scrollable
+     so users can reach and edit all of it. (Editor-only; not exported.) */
+  html, body { overflow: auto !important; }
   /* ───── Edit mode (text) ───── */
   body[data-mode="edit"] [data-hce-text]:hover {
     outline: 1px dashed rgba(26, 26, 26, 0.35) !important;
@@ -524,6 +529,20 @@ export function buildIframeScript() {
   // we redefine them — many decks branch on keyCode 37/39).
   var slidesMode = false;
   var dispatchingNav = false;
+  // Slide decks pin slides to height:100vh; in the short editor iframe that
+  // clips tall slides with no scroll. When slide mode is on, relax the slide
+  // containers so they grow and the doc scrolls (editor-only; not exported).
+  function ensureSlideScrollFix(on) {
+    var id = '__hce-slide-scrollfix';
+    var ex = document.getElementById(id);
+    if (!on) { if (ex && ex.parentNode) ex.parentNode.removeChild(ex); return; }
+    if (ex) return;
+    var st = document.createElement('style');
+    st.id = id;
+    st.textContent = 'html,body{height:auto !important;min-height:100% !important}' +
+      '.slide,section,.step{height:auto !important;min-height:100vh;overflow:visible !important}';
+    (document.head || document.documentElement).appendChild(st);
+  }
   function navSlide(dir) {
     var right = (dir !== 'left');
     try {
@@ -593,7 +612,7 @@ export function buildIframeScript() {
 
     if (d.cmd === 'set-mode') applyMode(d.mode);
 
-    if (d.cmd === 'set-slides') { slidesMode = !!d.on; }
+    if (d.cmd === 'set-slides') { slidesMode = !!d.on; ensureSlideScrollFix(slidesMode); }
     if (d.cmd === 'nav-slide') { navSlide(d.dir); }
 
     if (d.cmd === 'set-lang') {
