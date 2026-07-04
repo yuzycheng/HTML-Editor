@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Always fetch a fresh HTML shell so updates show up without a hard refresh. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>HTML Editor · Collaborative revision for HTML</title>
 <link rel="icon" type="image/svg+xml" href="./assets/logo-mark.svg">
 <link rel="stylesheet" href="./styles/design.css">
@@ -254,6 +258,7 @@
     .upload-row { grid-template-columns: 1fr; }
   }
   .drop {
+    position: relative;
     border: 1.5px dashed var(--rule-strong);
     background: var(--panel-2);
     border-radius: var(--radius);
@@ -292,14 +297,41 @@
     flex-direction: column;
     justify-content: center;
     align-items: stretch;
+    gap: 8px;
   }
   .start-col .btn { width: 100%; justify-content: center; }
-  .start-col .meta {
-    font-size: 11px;
-    color: var(--subtle);
-    margin-top: 6px;
-    text-align: center;
+  /* Click-to-choose menu inside the drop zone (file OR folder). */
+  .upload-menu {
+    position: absolute;
+    left: 16px;
+    top: calc(100% - 6px);
+    z-index: 50;
+    min-width: 250px;
+    background: var(--panel);
+    border: var(--rule-w) solid var(--rule-strong);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 12px 30px rgba(0,0,0,.14);
+    padding: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
+  .upload-menu button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: none;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .upload-menu button:hover { background: var(--panel-2); }
+  .upload-menu .um-ic { font-size: 15px; line-height: 1; }
 
   /* ── Recent files ──────────────────────────── */
   .recent {
@@ -482,14 +514,19 @@
     </div>
 
     <div class="upload-row">
-      <label for="file-input" class="drop" id="drop-zone">
+      <div class="drop" id="drop-zone" role="button" tabindex="0">
         <div class="icon">↑</div>
         <div class="txt">
-          <div class="big" data-i18n="drop_big">Drop your HTML file here</div>
-          <div class="small" data-i18n="drop_small">or click anywhere in this box · .html / .htm · up to 2 MB</div>
+          <div class="big" data-i18n="drop_big">Drop an HTML file or a whole folder here</div>
+          <div class="small" data-i18n="drop_small">Or click to choose — an HTML file, or a folder with images/videos</div>
         </div>
-        <input type="file" id="file-input" accept=".html,.htm" style="display:none">
-      </label>
+        <input type="file" id="file-input" accept=".html,.htm" multiple style="display:none">
+        <input type="file" id="folder-input" webkitdirectory multiple style="display:none">
+        <div class="upload-menu" id="upload-menu" role="menu" style="display:none">
+          <button type="button" data-pick="file" role="menuitem"><span class="um-ic">📄</span><span data-i18n="pick_file">HTML file</span></button>
+          <button type="button" data-pick="folder" role="menuitem"><span class="um-ic">📁</span><span data-i18n="pick_folder">Folder (with images/videos)</span></button>
+        </div>
+      </div>
       <div class="start-col">
         <button class="btn btn-primary btn-lg" id="start-btn" data-i18n="start">Start →</button>
       </div>
@@ -523,8 +560,10 @@
     ec_d:       { en: 'Rewrite text, comment on any element.', zh: '改写文字，为任意元素留批注。' },
     ex_t:       { en: 'Export', zh: '导出' },
     ex_d:       { en: 'Download HTML or package it for AI.', zh: '下载 HTML<br>或打包给 AI 优化。' },
-    drop_big:   { en: 'Drop your HTML file here', zh: '把 HTML 文件拖到这里' },
-    drop_small: { en: 'or click anywhere in this box · .html / .htm · up to 2 MB', zh: '或点击此区域任意位置 · .html / .htm · 最大 2 MB' },
+    drop_big:   { en: 'Drop an HTML file or a whole folder here', zh: '把 HTML 文件或整个文件夹拖到这里' },
+    drop_small: { en: 'Or click to choose — an HTML file, or a folder with images/videos', zh: '或点此选择 · HTML 文件，或含图片 / 视频的文件夹' },
+    pick_file:  { en: 'HTML file', zh: 'HTML 文件' },
+    pick_folder:{ en: 'Folder (with images/videos)', zh: '文件夹（含图片 / 视频）' },
     start:      { en: 'Start →', zh: '开始 →' },
     recent_h:   { en: 'Recent files', zh: '最近文件' },
     clear:      { en: 'Clear all', zh: '全部清除' },
@@ -561,74 +600,286 @@
   const drop = document.getElementById('drop-zone');
   const input = document.getElementById('file-input');
 
-  // Start just opens the picker — no scroll dance, no animation.
-  startBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    input.click();
-  });
+  // A single upload entry. Because one <input> can't offer BOTH a file picker
+  // and a folder picker, clicking the box (or Start) opens a tiny menu to pick
+  // "HTML file" or "Folder". DRAG-AND-DROP needs no menu — it auto-detects a
+  // file vs a folder (collectDropFiles walks dropped directories).
+  const folderInput = document.getElementById('folder-input');
+  const uploadMenu = document.getElementById('upload-menu');
 
-  ['dragenter','dragover'].forEach(ev =>
-    drop.addEventListener(ev, e => {
-      e.preventDefault();
-      drop.classList.add('dragover');
-    })
-  );
-  ['dragleave','drop'].forEach(ev =>
-    drop.addEventListener(ev, e => {
-      e.preventDefault();
-      if (ev === 'dragleave' && drop.contains(e.relatedTarget)) return;
-      drop.classList.remove('dragover');
-    })
-  );
-  drop.addEventListener('drop', e => {
-    const f = e.dataTransfer.files[0];
-    if (f) handleFile(f);
+  function openUploadMenu() {
+    uploadMenu.style.display = 'flex';
+    document.removeEventListener('click', onOutsideMenu, true);
+    setTimeout(() => document.addEventListener('click', onOutsideMenu, true), 0);
+  }
+  function closeUploadMenu() {
+    uploadMenu.style.display = 'none';
+    document.removeEventListener('click', onOutsideMenu, true);
+  }
+  function onOutsideMenu(e) {
+    if (e.target.closest('#upload-menu') || e.target.closest('#drop-zone') || e.target.closest('#start-btn')) return;
+    closeUploadMenu();
+  }
+
+  startBtn.addEventListener('click', (e) => { e.preventDefault(); openUploadMenu(); });
+  drop.addEventListener('click', (e) => {
+    if (e.target.closest('#upload-menu')) return;   // menu buttons handle themselves
+    if (e.target.tagName === 'INPUT') return;       // ignore a programmatic input.click() bubbling back
+    openUploadMenu();
   });
+  uploadMenu.querySelector('[data-pick="file"]').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation(); closeUploadMenu(); input.click();
+  });
+  uploadMenu.querySelector('[data-pick="folder"]').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation(); closeUploadMenu(); folderInput.click();
+  });
+  folderInput.addEventListener('change', e => { handleFiles(e.target.files); });
+
   input.addEventListener('change', e => {
-    const f = e.target.files[0];
-    if (f) handleFile(f);
+    handleFiles(e.target.files);
   });
 
-  // Page-wide drag highlights the drop zone, so a file dropped anywhere works.
-  ['dragenter','dragover'].forEach(ev =>
-    document.body.addEventListener(ev, e => {
-      e.preventDefault();
-      drop.classList.add('dragover');
-    })
-  );
-  document.body.addEventListener('dragleave', e => {
-    if (e.target === document.body) drop.classList.remove('dragover');
-  });
-  document.body.addEventListener('drop', e => {
+  // ── Drag-and-drop: ONE unified handler at the window level ────────────
+  // A single HTML file OR a whole folder can be dropped ANYWHERE on the page,
+  // and it auto-detects which. We intercept dragover/drop at the WINDOW and
+  // always preventDefault, so the browser never runs its own "open the dropped
+  // file" action (that stray default was the layout "错乱").
+  //
+  // REAL-CHROME CORRECTNESS: a DataTransfer is only valid DURING the drop
+  // event. `webkitGetAsEntry()` and `.files` MUST be read synchronously here —
+  // if we passed the event into an async function and read them later, Chrome
+  // has already emptied the DataTransfer and the folder walk silently yields
+  // nothing (→ "dropping a folder does nothing / breaks", while the file-input
+  // path still works). So we snapshot entries + files up front, THEN go async.
+  let dropBusy = false;
+  window.addEventListener('dragover', e => { e.preventDefault(); }, false);
+  window.addEventListener('dragenter', e => { e.preventDefault(); drop.classList.add('dragover'); }, false);
+  window.addEventListener('dragleave', e => {
+    if (e.target === document.documentElement || e.target === document.body) drop.classList.remove('dragover');
+  }, false);
+  window.addEventListener('drop', e => {
     e.preventDefault();
+    e.stopPropagation();
     drop.classList.remove('dragover');
-    const f = e.dataTransfer.files[0];
-    if (f) handleFile(f);
-  });
-
-  function handleFile(f) {
-    if (!/\.html?$/i.test(f.name)) {
-      alert('Please drop an .html or .htm file.');
-      return;
-    }
-    if (f.size > 2 * 1024 * 1024) {
-      alert('File too large. Max 2 MB for v0.1.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = e => {
-      const roomId = generateRoomId();
-      try {
-        sessionStorage.setItem('hce-init-html-' + roomId, e.target.result);
-        sessionStorage.setItem('hce-init-name-' + roomId, f.name);
-      } catch (err) {
-        alert('Could not stash file in sessionStorage: ' + err.message);
-        return;
+    if (dropBusy) return;
+    dropBusy = true;
+    const done = () => { dropBusy = false; };
+    try {
+      const dt = e.dataTransfer;
+      // Snapshot SYNCHRONOUSLY — after this tick the DataTransfer is dead.
+      const plainFiles = Array.from((dt && dt.files) || []);
+      const items = (dt && dt.items) ? Array.from(dt.items) : [];
+      const entries = [];
+      let hasDirectory = false;
+      for (let i = 0; i < items.length; i++) {
+        const getEntry = items[i] && items[i].webkitGetAsEntry;
+        const en = (typeof getEntry === 'function') ? items[i].webkitGetAsEntry() : null;
+        if (en) { entries.push(en); if (en.isDirectory) hasDirectory = true; }
       }
-      rememberRoom({ roomId, filename: f.name });
-      location.href = './room.html?room=' + roomId;
+      // FOLDER path: at least one dropped item is a directory → walk it (this is
+      // the SAME result as the "choose a folder" button, just from a drop).
+      // FILE path: no directories → use the plain file list directly.
+      if (hasDirectory && entries.length) {
+        Promise.all(entries.map(en => walkEntry(en, '')))
+          .then(a => a.flat())
+          .then(files => handleFiles(files.length ? files : plainFiles))
+          .catch(() => handleFiles(plainFiles))
+          .finally(done);
+      } else {
+        Promise.resolve(handleFiles(plainFiles)).catch(() => {}).finally(done);
+      }
+    } catch (_) {
+      done();
+    }
+  }, false);
+
+  // A short localized message (upload flow runs outside the language IIFE).
+  function msg(key) {
+    const lang = (localStorage.getItem('hce-lang')
+      || ((navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en')) === 'zh' ? 'zh' : 'en';
+    const M = {
+      need_html:  { en: 'Please include an .html or .htm file.', zh: '请包含一个 .html 或 .htm 文件。' },
+      too_big:    { en: 'HTML file too large. Max 5 MB.', zh: 'HTML 文件过大，最大 5 MB。' },
+      open_fail:  { en: 'Could not open the file:', zh: '无法打开文件：' },
     };
-    reader.readAsText(f);
+    return (M[key] && M[key][lang]) || (M[key] && M[key].en) || key;
+  }
+
+  // ── Gather dropped files, walking folders too ──────────────────────────
+  // A plain multi-file drop populates dataTransfer.files. Dropping a FOLDER
+  // doesn't — we must walk the directory entries. Each file is stamped with a
+  // relative path so nested assets (images/cat.png) can be matched to the src.
+  function collectDropFiles(e) {
+    const dt = e.dataTransfer;
+    const items = dt && dt.items;
+    if (!items || !items.length || typeof items[0].webkitGetAsEntry !== 'function') {
+      return Promise.resolve(Array.from((dt && dt.files) || []));
+    }
+    const entries = [];
+    for (let i = 0; i < items.length; i++) {
+      const en = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
+      if (en) entries.push(en);
+    }
+    if (!entries.length) return Promise.resolve(Array.from((dt && dt.files) || []));
+    return Promise.all(entries.map(en => walkEntry(en, ''))).then(a => a.flat());
+  }
+  function walkEntry(entry, prefix) {
+    return new Promise(resolve => {
+      if (entry.isFile) {
+        entry.file(f => {
+          try { f._relPath = prefix + entry.name; } catch (_) {}
+          resolve([f]);
+        }, () => resolve([]));
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const acc = [];
+        const readBatch = () => reader.readEntries(batch => {
+          if (!batch.length) {
+            Promise.all(acc.map(en => walkEntry(en, prefix + entry.name + '/'))).then(a => resolve(a.flat()));
+          } else {
+            for (let i = 0; i < batch.length; i++) acc.push(batch[i]);
+            readBatch();   // readEntries yields in chunks — keep going until empty
+          }
+        }, () => resolve([]));
+        readBatch();
+      } else { resolve([]); }
+    });
+  }
+
+  // ── Match uploaded assets to the HTML's relative media paths & inline ───
+  function relPathOf(f) { return (f._relPath || f.webkitRelativePath || f.name || '').replace(/\\/g, '/'); }
+  function baseNameOf(p) { p = String(p).split('?')[0].split('#')[0]; const i = p.lastIndexOf('/'); return i >= 0 ? p.slice(i + 1) : p; }
+  function normSrc(s) {
+    s = String(s || '').trim().split('?')[0].split('#')[0];
+    try { s = decodeURIComponent(s); } catch (_) {}
+    return s.replace(/^\.?\//, '').replace(/^\//, '').replace(/\\/g, '/');
+  }
+  function readDataURL(f) {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = () => rej(r.error || new Error('read error'));
+      r.readAsDataURL(f);
+    });
+  }
+  async function inlineAssets(htmlText, assets) {
+    if (!assets || !assets.length) return { html: htmlText, inlined: 0, skipped: [] };
+    // Index assets by folder-relative path (and a folder-stripped variant) plus
+    // basename, so both "images/cat.png" and a bare "cat.png" resolve.
+    const byPath = new Map(), byName = new Map();
+    assets.forEach(f => {
+      const rp = relPathOf(f).toLowerCase();
+      byPath.set(rp, f);
+      const noTop = rp.replace(/^[^/]+\//, '');
+      if (noTop && noTop !== rp && !byPath.has(noTop)) byPath.set(noTop, f);
+      const bn = baseNameOf(rp);
+      if (bn && !byName.has(bn)) byName.set(bn, f);
+    });
+    function findAsset(src) {
+      const n = normSrc(src).toLowerCase();
+      if (!n) return null;
+      if (byPath.has(n)) return byPath.get(n);
+      for (const [p, f] of byPath) { if (p.endsWith('/' + n)) return f; }
+      const bn = baseNameOf(n);
+      return byName.has(bn) ? byName.get(bn) : null;
+    }
+    const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+    const targets = [];
+    doc.querySelectorAll('img[src], video[src], audio[src], video source[src], audio source[src]')
+      .forEach(el => targets.push({ el, attr: 'src' }));
+    doc.querySelectorAll('video[poster]').forEach(el => targets.push({ el, attr: 'poster' }));
+    let budget = 4.3 * 1024 * 1024;   // keep the final string within sessionStorage quota
+    let inlined = 0; const skipped = [];
+    for (const t of targets) {
+      const s = t.el.getAttribute(t.attr) || '';
+      if (/^(https?:|data:|blob:)/i.test(s)) continue;   // already resolvable
+      const f = findAsset(s);
+      if (!f) continue;                                  // not provided → stays a placeholder
+      if (f.size > budget) { skipped.push(baseNameOf(relPathOf(f))); continue; }
+      try {
+        const url = await readDataURL(f);
+        t.el.setAttribute(t.attr, url);
+        budget -= url.length;
+        inlined++;
+      } catch (_) { skipped.push(baseNameOf(relPathOf(f))); }
+    }
+    return { html: '<!DOCTYPE html>\n' + doc.documentElement.outerHTML, inlined: inlined, skipped: skipped };
+  }
+
+  // Back-compat single-file entry (kept for any direct callers).
+  function handleFile(f) { if (f) handleFiles([f]); }
+
+  // A dropped/selected FOLDER can contain several .html files (a multi-page
+  // export, or — while testing — the app's own web folder). Blindly taking the
+  // first one loaded the WRONG page: if it was the editor's own index.html /
+  // room.html, the editor ended up rendering itself → nested chrome, "two
+  // topbars", layout chaos. Pick the real document intelligently instead:
+  //   1. Skip files that ARE the app's own shell (drop-zone / setMode markers).
+  //   2. Prefer an exact "index.html", then the shallowest path, then largest.
+  const HTML_RE = /\.html?$/i;
+  function isAppShellHtml(text) {
+    if (!text) return false;
+    return /id=["']drop-zone["']/.test(text)             // our landing page
+        || /onclick=["']setMode\(/.test(text)            // our editor room shell
+        || /data-i18n=["']drop_big["']/.test(text);
+  }
+  function depthOf(f) { return (relPathOf(f).match(/\//g) || []).length; }
+  async function pickMainHtml(htmlFiles) {
+    if (htmlFiles.length === 1) return htmlFiles[0];
+    // Read each candidate once; drop the app's own shell pages.
+    const scored = [];
+    for (const f of htmlFiles) {
+      let text = '';
+      try { text = await f.text(); } catch (_) {}
+      if (isAppShellHtml(text)) continue;              // never load the editor into itself
+      scored.push({ f, text, name: baseNameOf(relPathOf(f)).toLowerCase(), depth: depthOf(f), size: f.size });
+    }
+    const pool = scored.length ? scored : htmlFiles.map(f => ({ f, name: baseNameOf(relPathOf(f)).toLowerCase(), depth: depthOf(f), size: f.size }));
+    pool.sort((a, b) => {
+      const ai = a.name === 'index.html' ? 0 : 1, bi = b.name === 'index.html' ? 0 : 1;
+      if (ai !== bi) return ai - bi;                    // index.html wins
+      if (a.depth !== b.depth) return a.depth - b.depth; // shallowest wins
+      return (b.size || 0) - (a.size || 0);              // then largest
+    });
+    return pool[0].f;
+  }
+
+  let submitting = false;   // guard so a room is only ever opened once per upload
+  async function handleFiles(fileList) {
+    if (submitting) return;
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const htmlFiles = files.filter(f => HTML_RE.test(f.name));
+    if (!htmlFiles.length) { alert(msg('need_html')); return; }
+    const htmlFile = await pickMainHtml(htmlFiles);
+    if (!htmlFile) { alert(msg('need_html')); return; }
+    if (htmlFile.size > 5 * 1024 * 1024) { alert(msg('too_big')); return; }
+    // Commit SYNCHRONOUSLY, before any await, so a second concurrent call
+    // (double-fire / event bubbling) bails at the guard above instead of racing
+    // through the awaits and opening a second room.
+    submitting = true;
+    const assets = files.filter(f => f !== htmlFile && !/\.html?$/i.test(f.name));
+    let text;
+    try { text = await htmlFile.text(); }
+    catch (err) { submitting = false; alert(msg('open_fail') + ' ' + err.message); return; }
+    let result;
+    try { result = await inlineAssets(text, assets); }
+    catch (_) { result = { html: text, inlined: 0, skipped: [] }; }
+    const roomId = generateRoomId();
+    try {
+      sessionStorage.setItem('hce-init-html-' + roomId, result.html);
+      sessionStorage.setItem('hce-init-name-' + roomId, htmlFile.name);
+    } catch (err) {
+      submitting = false;
+      alert(msg('open_fail') + ' ' + err.message);
+      return;
+    }
+    rememberRoom({ roomId, filename: htmlFile.name });
+    if (result.skipped && result.skipped.length) {
+      // Non-blocking: these can still be added inside the editor.
+      console.warn('[hce] assets too large to inline, add them in the editor:', result.skipped.join(', '));
+    }
+    location.href = './room.html?room=' + roomId;
   }
 
   function generateRoomId() {
@@ -641,6 +892,26 @@
   // ─── Recent files ────────────────────────────
   const RECENT_KEY = 'hce-recent-files';
   const RECENT_MAX = 12;
+  const STARTER_ROOM_ID = 'starter-guide-v12';
+
+  function starterFilename() {
+    const lang = localStorage.getItem('hce-lang')
+      || ((navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
+    return lang === 'zh' ? '新手上手说明书.html' : 'Starter Guide.html';
+  }
+
+  function ensureStarterRecent() {
+    let list = loadRecent().filter(x => x.roomId !== 'starter-guide' && x.roomId !== 'starter-guide-v2' && x.roomId !== 'starter-guide-v3' && x.roomId !== 'starter-guide-v4' && x.roomId !== 'starter-guide-v5' && x.roomId !== 'starter-guide-v6' && x.roomId !== 'starter-guide-v7' && x.roomId !== 'starter-guide-v8' && x.roomId !== 'starter-guide-v9' && x.roomId !== 'starter-guide-v10' && x.roomId !== 'starter-guide-v11');
+    const hit = list.find(x => x.roomId === STARTER_ROOM_ID);
+    if (hit) {
+      if (!hit.filename) hit.filename = starterFilename();
+      saveRecent(list);
+      return;
+    }
+    const now = Date.now();
+    list.unshift({ roomId: STARTER_ROOM_ID, filename: starterFilename(), createdAt: now, lastOpenedAt: now });
+    saveRecent(list);
+  }
 
   function loadRecent() {
     try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); }
@@ -709,6 +980,9 @@
     return escapeText(s).replace(/"/g, '&quot;');
   }
   document.getElementById('recent-clear').addEventListener('click', clearAllRoom);
+  // 说明书暂不上线：先不把「新手上手说明书」自动注入首页「最近文件」。
+  // 将来要上线说明书时，取消下一行注释即可（starterFilename/ensureStarterRecent 已保留）。
+  // ensureStarterRecent();
   renderRecent();
 </script>
 

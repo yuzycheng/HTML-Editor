@@ -9,3 +9,7 @@ build/
 .env.local
 .guizang-skill/
 .agents/
+
+# Local test scaffolding — not part of the shipped site
+CurrentVersion/
+local-media-upload-test/

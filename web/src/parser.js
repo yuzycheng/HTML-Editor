@@ -181,6 +181,49 @@ export function removeElementFromSkeleton(skeleton, elementId) {
 }
 
 /**
+ * Move an element to before/after another element (drag-to-reorder).
+ * `before` = true inserts the moving element right before the target,
+ * false inserts it right after. Returns the new skeleton and a `moved`
+ * flag (false if ids are missing, identical, or it would nest into itself).
+ */
+export function moveElementInSkeleton(skeleton, movingId, targetId, before) {
+  if (!movingId || !targetId || movingId === targetId) return { skeleton, moved: false };
+  const doc = new DOMParser().parseFromString(skeleton, 'text/html');
+  const moving = doc.querySelector(`[data-block-id="${movingId}"]`);
+  const target = doc.querySelector(`[data-block-id="${targetId}"]`);
+  if (!moving || !target) return { skeleton, moved: false };
+  if (moving.contains(target)) return { skeleton, moved: false };  // can't move into its own subtree
+  const parent = target.parentNode;
+  if (!parent) return { skeleton, moved: false };
+  if (before) parent.insertBefore(moving, target);
+  else parent.insertBefore(moving, target.nextSibling);
+  return {
+    skeleton: '<!DOCTYPE html>\n' + doc.documentElement.outerHTML,
+    moved: true,
+  };
+}
+
+/**
+ * Move an element INTO a container (used by cross-container drag-drop when the
+ * drop target is an empty container). Inserts at the very start when `atStart`,
+ * otherwise appends. Refuses to move a node into its own subtree.
+ */
+export function moveIntoContainer(skeleton, movingId, containerId, atStart) {
+  if (!movingId || !containerId || movingId === containerId) return { skeleton, moved: false };
+  const doc = new DOMParser().parseFromString(skeleton, 'text/html');
+  const moving = doc.querySelector(`[data-block-id="${movingId}"]`);
+  const container = doc.querySelector(`[data-block-id="${containerId}"]`);
+  if (!moving || !container) return { skeleton, moved: false };
+  if (moving === container || moving.contains(container)) return { skeleton, moved: false };
+  if (atStart) container.insertBefore(moving, container.firstChild);
+  else container.appendChild(moving);
+  return {
+    skeleton: '<!DOCTYPE html>\n' + doc.documentElement.outerHTML,
+    moved: true,
+  };
+}
+
+/**
  * Deep-clone an element in the skeleton, assign fresh data-block-ids to
  * the clone (and all data-block-id descendants), insert it directly after
  * the original. Returns the new skeleton plus an `addedBlocks` array
@@ -368,6 +411,257 @@ export function duplicateColumnInSkeleton(skeleton, cellId, existingBlocks) {
     skeleton: '<!DOCTYPE html>\n' + doc.documentElement.outerHTML,
     addedBlocks,
     insertions,
+  };
+}
+
+const DEFAULT_CELL_CSS =
+  'border:1px solid #e7e5e4;padding:8px 12px;text-align:left;vertical-align:top;min-width:64px;';
+
+// Prime a fresh integer ID counter from every `b<n>` id already in play.
+function nextBlockCounter(doc, existingBlocks) {
+  const used = new Set();
+  doc.querySelectorAll('[data-block-id]').forEach(el => {
+    const m = /^b(\d+)$/.exec(el.getAttribute('data-block-id') || '');
+    if (m) used.add(+m[1]);
+  });
+  (existingBlocks || []).forEach(b => {
+    const m = /^b(\d+)$/.exec(b.id || '');
+    if (m) used.add(+m[1]);
+  });
+  let counter = 0;
+  for (const n of used) if (n > counter) counter = n;
+  return counter;
+}
+
+function cellsOf(row) {
+  return Array.from(row.children).filter(c => c.tagName === 'TD' || c.tagName === 'TH');
+}
+
+/**
+ * Insert a BLANK column beside the column containing `cellId`.
+ * `side` is 'left' or 'right'. Every <tr> gets one new empty cell whose
+ * tag (td/th) and style match that row's cell in the reference column, so a
+ * header row still gets a header cell. Returns the rebuilt table so the caller
+ * can swap it into the live iframe with a single `replace-element`.
+ */
+export function insertColumnInSkeleton(skeleton, cellId, side, existingBlocks) {
+  const empty = { skeleton, addedBlocks: [], tableId: null, tableHTML: '' };
+  const doc = new DOMParser().parseFromString(skeleton, 'text/html');
+  const cell = doc.querySelector(`[data-block-id="${cellId}"]`);
+  if (!cell) return empty;
+
+  let targetCell = cell;
+  while (targetCell && targetCell.tagName !== 'TD' && targetCell.tagName !== 'TH') {
+    if (targetCell.tagName === 'TABLE' || !targetCell.parentElement) return empty;
+    targetCell = targetCell.parentElement;
+  }
+  if (!targetCell) return empty;
+
+  const tr = targetCell.parentElement;
+  if (!tr) return empty;
+  const colIndex = cellsOf(tr).indexOf(targetCell);
+  if (colIndex < 0) return empty;
+
+  let table = tr.parentElement;
+  while (table && table.tagName !== 'TABLE') table = table.parentElement;
+  if (!table) return empty;
+
+  let counter = nextBlockCounter(doc, existingBlocks);
+  const addedBlocks = [];
+
+  table.querySelectorAll('tr').forEach(row => {
+    const rowCells = cellsOf(row);
+    if (!rowCells.length) return;
+    const ref = rowCells[colIndex] || rowCells[rowCells.length - 1];
+    const isHead = ref.tagName === 'TH';
+    const nc = doc.createElement(isHead ? 'th' : 'td');
+    const nid = 'b' + (++counter);
+    nc.setAttribute('data-block-id', nid);
+    nc.setAttribute('data-hce-text', '1');
+    nc.setAttribute('style', ref.getAttribute('style') || DEFAULT_CELL_CSS);
+    nc.textContent = '';
+    addedBlocks.push({ id: nid, tag: nc.tagName.toLowerCase(), text: '' });
+    if (side === 'left') row.insertBefore(nc, ref);
+    else if (ref.nextSibling) row.insertBefore(nc, ref.nextSibling);
+    else row.appendChild(nc);
+  });
+
+  if (!addedBlocks.length) return empty;
+  return {
+    skeleton: '<!DOCTYPE html>\n' + doc.documentElement.outerHTML,
+    addedBlocks,
+    tableId: table.getAttribute('data-block-id'),
+    tableHTML: table.outerHTML,
+  };
+}
+
+/**
+ * Insert a BLANK row above/below the row containing `cellId`.
+ * `side` is 'above' or 'below'. New cells are always body cells (td); their
+ * per-column style is copied from an existing body cell in that column (so a
+ * new row matches the table's body styling rather than the header). Returns
+ * the rebuilt table for a single `replace-element` swap.
+ */
+export function insertRowInSkeleton(skeleton, cellId, side, existingBlocks) {
+  const empty = { skeleton, addedBlocks: [], tableId: null, tableHTML: '' };
+  const doc = new DOMParser().parseFromString(skeleton, 'text/html');
+  const cell = doc.querySelector(`[data-block-id="${cellId}"]`);
+  if (!cell) return empty;
+
+  let tr = cell;
+  while (tr && tr.tagName !== 'TR') {
+    if (tr.tagName === 'TABLE' || !tr.parentElement) return empty;
+    tr = tr.parentElement;
+  }
+  if (!tr) return empty;
+  const parent = tr.parentElement;
+  if (!parent) return empty;
+
+  let table = tr.parentElement;
+  while (table && table.tagName !== 'TABLE') table = table.parentElement;
+  if (!table) return empty;
+
+  const refCells = cellsOf(tr);
+  if (!refCells.length) return empty;
+
+  // Per-column body-style prototypes: prefer a real <td> in that column.
+  const colStyle = [];
+  const rows = Array.from(table.querySelectorAll('tr'));
+  for (let i = 0; i < refCells.length; i++) {
+    let style = '';
+    for (const row of rows) {
+      const rc = cellsOf(row);
+      const c = rc[i];
+      if (c && c.tagName === 'TD' && c.getAttribute('style')) { style = c.getAttribute('style'); break; }
+    }
+    if (!style) style = (refCells[i].tagName === 'TD' && refCells[i].getAttribute('style')) || DEFAULT_CELL_CSS;
+    colStyle.push(style);
+  }
+
+  let counter = nextBlockCounter(doc, existingBlocks);
+  const addedBlocks = [];
+  const newRow = doc.createElement('tr');
+  newRow.setAttribute('data-block-id', 'b' + (++counter));
+  refCells.forEach((ref, i) => {
+    const nc = doc.createElement('td');
+    const nid = 'b' + (++counter);
+    nc.setAttribute('data-block-id', nid);
+    nc.setAttribute('data-hce-text', '1');
+    nc.setAttribute('style', colStyle[i] || DEFAULT_CELL_CSS);
+    nc.textContent = '';
+    addedBlocks.push({ id: nid, tag: 'td', text: '' });
+    newRow.appendChild(nc);
+  });
+
+  if (side === 'above') parent.insertBefore(newRow, tr);
+  else if (tr.nextSibling) parent.insertBefore(newRow, tr.nextSibling);
+  else parent.appendChild(newRow);
+
+  if (!addedBlocks.length) return empty;
+  return {
+    skeleton: '<!DOCTYPE html>\n' + doc.documentElement.outerHTML,
+    addedBlocks,
+    tableId: table.getAttribute('data-block-id'),
+    tableHTML: table.outerHTML,
+  };
+}
+
+/**
+ * Reorder the row containing `cellId` to gap position `toIndex` (0..rowCount).
+ * `toIndex` is an insertion gap in the ORIGINAL row order, so dropping just
+ * before/after the row's own slot is a no-op. No blocks are added or removed —
+ * the cells keep their ids, only their document order changes. Returns the
+ * rebuilt table for a single `replace-element` swap.
+ */
+export function moveRowInSkeleton(skeleton, cellId, toIndex) {
+  const empty = { skeleton, tableId: null, tableHTML: '', moved: false };
+  const doc = new DOMParser().parseFromString(skeleton, 'text/html');
+  const cell = doc.querySelector(`[data-block-id="${cellId}"]`);
+  if (!cell) return empty;
+
+  let tr = cell;
+  while (tr && tr.tagName !== 'TR') {
+    if (tr.tagName === 'TABLE' || !tr.parentElement) return empty;
+    tr = tr.parentElement;
+  }
+  if (!tr) return empty;
+
+  let table = tr.parentElement;
+  while (table && table.tagName !== 'TABLE') table = table.parentElement;
+  if (!table) return empty;
+
+  const rows = Array.from(table.querySelectorAll('tr'));
+  const fromIdx = rows.indexOf(tr);
+  if (fromIdx < 0) return empty;
+
+  let to = Math.max(0, Math.min(rows.length, toIndex | 0));
+  if (to === fromIdx || to === fromIdx + 1) return empty;   // dropped in its own slot
+
+  const adj = to > fromIdx ? to - 1 : to;
+  const remaining = rows.filter((_, i) => i !== fromIdx);
+  const refNode = remaining[adj] || null;
+  const parent = tr.parentElement;
+  tr.remove();
+  if (refNode && refNode.parentElement) refNode.parentElement.insertBefore(tr, refNode);
+  else parent.appendChild(tr);
+
+  return {
+    skeleton: '<!DOCTYPE html>\n' + doc.documentElement.outerHTML,
+    tableId: table.getAttribute('data-block-id'),
+    tableHTML: table.outerHTML,
+    moved: true,
+  };
+}
+
+/**
+ * Reorder the column containing `cellId` to gap position `toIndex`
+ * (0..colCount). Every <tr> has its cell at the source index pulled out and
+ * re-inserted at the adjusted target index, so the whole column moves as one.
+ * No blocks added/removed. Returns the rebuilt table for one `replace-element`.
+ */
+export function moveColumnInSkeleton(skeleton, cellId, toIndex) {
+  const empty = { skeleton, tableId: null, tableHTML: '', moved: false };
+  const doc = new DOMParser().parseFromString(skeleton, 'text/html');
+  const cell = doc.querySelector(`[data-block-id="${cellId}"]`);
+  if (!cell) return empty;
+
+  let targetCell = cell;
+  while (targetCell && targetCell.tagName !== 'TD' && targetCell.tagName !== 'TH') {
+    if (targetCell.tagName === 'TABLE' || !targetCell.parentElement) return empty;
+    targetCell = targetCell.parentElement;
+  }
+  if (!targetCell) return empty;
+
+  const tr0 = targetCell.parentElement;
+  if (!tr0) return empty;
+  const fromIdx = cellsOf(tr0).indexOf(targetCell);
+  if (fromIdx < 0) return empty;
+
+  let table = tr0.parentElement;
+  while (table && table.tagName !== 'TABLE') table = table.parentElement;
+  if (!table) return empty;
+
+  const numCols = cellsOf(tr0).length;
+  let to = Math.max(0, Math.min(numCols, toIndex | 0));
+  if (to === fromIdx || to === fromIdx + 1) return empty;   // dropped in its own slot
+
+  const adj = to > fromIdx ? to - 1 : to;
+  table.querySelectorAll('tr').forEach(row => {
+    const rc = cellsOf(row);
+    if (fromIdx >= rc.length) return;
+    const moving = rc[fromIdx];
+    const remaining = rc.filter((_, i) => i !== fromIdx);
+    const refNode = remaining[adj] || null;
+    moving.remove();
+    if (refNode) row.insertBefore(moving, refNode);
+    else row.appendChild(moving);
+  });
+
+  return {
+    skeleton: '<!DOCTYPE html>\n' + doc.documentElement.outerHTML,
+    tableId: table.getAttribute('data-block-id'),
+    tableHTML: table.outerHTML,
+    moved: true,
   };
 }
 
