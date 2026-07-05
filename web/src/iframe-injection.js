@@ -559,7 +559,8 @@ export function buildIframeScript() {
         toggleStylePanel(toolsTarget, e.currentTarget);   // toolsTarget is the td/th cell
       });
     } else {
-      var tIsMedia = toolsTarget && (toolsTarget.tagName === 'IMG' || toolsTarget.tagName === 'VIDEO' || toolsTarget.tagName === 'AUDIO');
+      var tIsEmbedVideo = toolsTarget && toolsTarget.tagName === 'IFRAME' && toolsTarget.getAttribute('data-hce-video') === 'embed';
+      var tIsMedia = toolsTarget && (toolsTarget.tagName === 'IMG' || toolsTarget.tagName === 'VIDEO' || toolsTarget.tagName === 'AUDIO' || tIsEmbedVideo);
       var tIsImage = toolsTarget && toolsTarget.tagName === 'IMG';
       var tIsLink = toolsTarget && toolsTarget.tagName === 'A' && toolsTarget.hasAttribute('data-hce-link');
       var tHasLink = toolsTarget && (toolsTarget.hasAttribute('data-hce-href') || (toolsTarget.closest && toolsTarget.closest('[data-hce-href]')));
@@ -1369,6 +1370,7 @@ export function buildIframeScript() {
   function mediaKindOf(el) {
     if (el.tagName === 'A') return 'link';
     if (el.tagName === 'VIDEO') return 'video';
+    if (el.tagName === 'IFRAME' && el.getAttribute('data-hce-video') === 'embed') return 'video';
     if (el.tagName === 'AUDIO') return 'audio';
     return 'image';
   }
