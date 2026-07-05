@@ -411,6 +411,19 @@ export function buildIframeScript() {
   function isHorizontalColumn(el) {
     return !!horizontalRowParent(el);
   }
+  // The outermost horizontal row/card that contains the element as a (possibly
+  // nested) column. Used so duplicating a horizontal column drops the copy
+  // BELOW the whole row instead of squeezing a new column in (which overflows
+  // off-screen when the row cannot grow). Returns null for normal vertical
+  // blocks.
+  function outermostHorizontalRow(el) {
+    var row = null, cur = el, guard = 0;
+    while (cur && guard++ < 20) {
+      var hp = horizontalRowParent(cur) || insideHorizontalCard(cur);
+      if (hp && hp !== cur) { row = hp; cur = hp; } else break;
+    }
+    return row;
+  }
 
   // A "stack" container holds several stacked child blocks meant to be reordered
   // among themselves — e.g. a quick card <div class=q><b>title</b><span>body
@@ -612,10 +625,19 @@ export function buildIframeScript() {
       tools.querySelector('.dup').addEventListener('click', function(e) {
         e.preventDefault(); e.stopPropagation();
         if (!toolsTarget) return;
-        window.parent.postMessage({
+        var dupMsg = {
           type: 'request-block-duplicate',
           id: toolsTarget.getAttribute('data-block-id')
-        }, '*');
+        };
+        // A horizontal column duplicated in place becomes a new column that can
+        // overflow off-screen (fixed-width / nowrap rows) or wrap unpredictably.
+        // Drop the copy BELOW the whole row instead so it is always visible and
+        // behaves consistently regardless of the row's CSS.
+        var dupRow = outermostHorizontalRow(toolsTarget);
+        if (dupRow && dupRow.getAttribute('data-block-id')) {
+          dupMsg.afterId = dupRow.getAttribute('data-block-id');
+        }
+        window.parent.postMessage(dupMsg, '*');
         hideTools();
       });
       // [ADDITION] Style button — toggles the style panel. Media (image/video)

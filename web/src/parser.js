@@ -268,7 +268,7 @@ export function moveIntoContainer(skeleton, movingId, containerId, atStart) {
  * local. Callers can pass `state.blocks.length` or compute from existing
  * IDs; we just need monotonically increasing values that don't collide.
  */
-export function duplicateElementInSkeleton(skeleton, elementId, existingBlocks) {
+export function duplicateElementInSkeleton(skeleton, elementId, existingBlocks, afterId) {
   const doc = new DOMParser().parseFromString(skeleton, 'text/html');
   const target = doc.querySelector(`[data-block-id="${elementId}"]`);
   if (!target) return { skeleton, addedBlocks: [] };
@@ -304,11 +304,19 @@ export function duplicateElementInSkeleton(skeleton, elementId, existingBlocks) 
   if (clone.hasAttribute('data-block-id')) reassign(clone);
   clone.querySelectorAll('[data-block-id]').forEach(reassign);
 
-  // Insert immediately after the original.
-  if (target.nextSibling) {
-    target.parentNode.insertBefore(clone, target.nextSibling);
+  // Insert immediately after the original — or, when the caller passes an
+  // anchor (e.g. the horizontal row that holds a duplicated column, so the
+  // copy lands BELOW the row instead of overflowing off to the right), after
+  // that anchor instead.
+  let anchor = target;
+  if (afterId) {
+    const a = doc.querySelector(`[data-block-id="${afterId}"]`);
+    if (a) anchor = a;
+  }
+  if (anchor.nextSibling) {
+    anchor.parentNode.insertBefore(clone, anchor.nextSibling);
   } else {
-    target.parentNode.appendChild(clone);
+    anchor.parentNode.appendChild(clone);
   }
 
   return {
@@ -318,7 +326,9 @@ export function duplicateElementInSkeleton(skeleton, elementId, existingBlocks) 
     // live iframe DOM so the page doesn't have to be re-rendered (which
     // would lose the user's scroll position).
     clonedHTML: clone.outerHTML,
-    originalId: elementId,
+    // The block-id the clone was inserted after — the iframe uses this as the
+    // insert-after anchor so its live-DOM copy lands in the same spot.
+    originalId: anchor.getAttribute('data-block-id') || elementId,
   };
 }
 

@@ -822,7 +822,7 @@ function handleIframeMessage(e) {
   }
 
   if (d.type === 'request-block-duplicate') {
-    duplicateBlock(d.id);
+    duplicateBlock(d.id, d.afterId);
   }
 
   if (d.type === 'request-move') {
@@ -1281,10 +1281,10 @@ function moveRow(cellId, toIndex) {
   toast(t('t_moved'));
 }
 
-function duplicateBlock(rawId) {
+function duplicateBlock(rawId, afterId) {
   const elementId = resolveStructuralTarget(rawId);
   const result = duplicateElementInSkeleton(
-    state.skeleton, elementId, state.blocks
+    state.skeleton, elementId, state.blocks, afterId
   );
   if (result.skeleton === state.skeleton) return;
   state.skeleton = result.skeleton;
