@@ -2580,6 +2580,16 @@ export function buildIframeScript() {
       startBlockDrag(el, e);
     }, true);
     document.addEventListener('mouseup', function () { pend = null; }, true);
+    // Kill the browser's NATIVE HTML5 drag for links & images while editing.
+    // <a href> and <img> default to draggable=true, so grabbing a linked block
+    // (or any image) starts the browser's own "drag the URL / picture out"
+    // gesture — the ghost of the page/link/image — instead of our block-drag
+    // engine, and on release can even navigate. In every interactive mode
+    // (anything but read-only View) we cancel dragstart so only our own drag
+    // logic runs. View keeps native behaviour (nothing to protect there).
+    document.addEventListener('dragstart', function (e) {
+      if (mode !== 'view') e.preventDefault();
+    }, true);
     window.addEventListener('scroll', function () {
       if (pinnedBlock && document.contains(pinnedBlock)) positionPins(pinnedBlock);
       if (tableCtlId != null) positionTableControls();
