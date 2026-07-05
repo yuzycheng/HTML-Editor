@@ -861,6 +861,12 @@
 <!-- Toast -->
 <div class="toast" id="toast" style="position:fixed;bottom:60px;left:50%;transform:translateX(-50%) translateY(8px);background:var(--ink);color:var(--paper);padding:8px 16px;font-size:12px;border-radius:6px;opacity:0;transition:all 200ms;pointer-events:none;z-index:9998;"></div>
 
-<script type="module" src="./src/room.js"></script>
+<script type="module">
+  /* Cache-bust the whole editor JS chain (room, parser, iframe-injection,
+     export, collab) so a fresh deploy shows up without a manual hard refresh.
+     The version query is read back inside room.js and propagated to its own
+     module imports. Vendor libs (yjs) load via importmap and stay cached. */
+  import('./src/room.js?v=' + Date.now());
+</script>
 </body>
 </html>

@@ -9,16 +9,27 @@
 //              for whole-document notes.
 // ─────────────────────────────────────────────────
 
-import {
-  parseHTML, renderForEditor, reassembleHTML,
-  removeElementFromSkeleton, duplicateElementInSkeleton, moveElementInSkeleton,
-  moveIntoContainer,
-  duplicateColumnInSkeleton, removeColumnFromSkeleton, describeElement,
-  insertColumnInSkeleton, insertRowInSkeleton,
-  moveColumnInSkeleton, moveRowInSkeleton,
-} from './parser.js';
-import { buildIframeScript } from './iframe-injection.js';
-import { buildExportPrompt } from './export.js';
+// Cache-busting version, propagated from room.html (?v=<timestamp>) to every
+// editor module below so a fresh deploy is never served from a stale browser
+// cache. Empty string when loaded without a query (falls back to normal cache).
+const __V = new URL(import.meta.url).search;
+
+const [
+  {
+    parseHTML, renderForEditor, reassembleHTML,
+    removeElementFromSkeleton, duplicateElementInSkeleton, moveElementInSkeleton,
+    moveIntoContainer,
+    duplicateColumnInSkeleton, removeColumnFromSkeleton, describeElement,
+    insertColumnInSkeleton, insertRowInSkeleton,
+    moveColumnInSkeleton, moveRowInSkeleton,
+  },
+  { buildIframeScript },
+  { buildExportPrompt },
+] = await Promise.all([
+  import('./parser.js' + __V),
+  import('./iframe-injection.js' + __V),
+  import('./export.js' + __V),
+]);
 
 const USER_COLORS = [
   '#ff5a1f', '#0891b2', '#65a30d', '#c026d3',
@@ -259,7 +270,7 @@ async function init() {
       const collabTimeout = new Promise((_, rej) => {
         collabTimer = setTimeout(() => rej(new Error('collab connect timed out')), 8000);
       });
-      const { connectCollab } = await Promise.race([import('./collab.js'), collabTimeout]);
+      const { connectCollab } = await Promise.race([import('./collab.js' + __V), collabTimeout]);
       state.collab = await Promise.race([connectCollab(state, {
         onBlockTextChange: (id, text) => {
           // While the iframe is being rebuilt due to a structural change,
