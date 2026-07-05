@@ -150,6 +150,40 @@ export function reassembleHTML(skeleton, blocks) {
     el.parentNode.replaceChild(text, el);
   });
 
+  // Turn whole-block links into REAL, clickable <a> wrappers. In the editor a
+  // block bound to a URL carries data-hce-href and only navigates in View mode
+  // (via a JS click handler that isn't shipped in the exported file). So the
+  // downloaded HTML would look linked but do nothing on click. Wrapping the
+  // block in <a href> makes it a genuine link that works anywhere the file is
+  // opened — no editor, no JS needed. display:contents keeps layout identical
+  // (the <a> produces no box of its own); color:inherit/text-decoration:none
+  // avoid the default blue-underline on the wrapped content.
+  doc.querySelectorAll('[data-hce-href]').forEach(el => {
+    const href = el.getAttribute('data-hce-href');
+    el.removeAttribute('data-hce-href');
+    if (!href || href === '#') return;
+    // If the block IS or CONTAINS a link already, don't create an illegal
+    // nested <a>. Put the href on the element itself if it's an <a> without one;
+    // otherwise leave the block's existing links to do the navigating.
+    if (el.tagName === 'A') {
+      if (!el.getAttribute('href')) {
+        el.setAttribute('href', href);
+        el.setAttribute('target', '_blank');
+        el.setAttribute('rel', 'noopener noreferrer');
+      }
+      return;
+    }
+    if (el.querySelector('a[href]')) return;
+    if (!el.parentNode) return;
+    const a = doc.createElement('a');
+    a.setAttribute('href', href);
+    a.setAttribute('target', '_blank');
+    a.setAttribute('rel', 'noopener noreferrer');
+    a.setAttribute('style', 'display:contents;color:inherit;text-decoration:none;cursor:pointer');
+    el.parentNode.insertBefore(a, el);
+    a.appendChild(el);
+  });
+
   // Scrub editor attributes.
   doc.querySelectorAll('[data-block-id]').forEach(el => {
     el.removeAttribute('data-block-id');
