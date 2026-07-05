@@ -3794,6 +3794,10 @@ export function buildIframeScript() {
       }
       hideHandle();
       hideTools();
+      // A deleted video leaves its floating cover overlay orphaned on the body
+      // (it isn't a child of the element). Rebuild video state so covers whose
+      // element is gone get removed.
+      if (typeof refreshVideoState === 'function') refreshVideoState();
     }
 
     // Apply a persisted inline style to an element (remote style change, or a
