@@ -3891,6 +3891,10 @@ export function buildIframeScript() {
       // A freshly-inserted <img> (or a duplicated broken one) becomes an
       // upload placeholder.
       scanBrokenMedia();
+      // A duplicated/inserted embed video (or <video>) needs its selection
+      // cover built for the current mode — without it the embed iframe eats
+      // clicks and can't be selected, edited or deleted.
+      if (typeof refreshVideoState === 'function') refreshVideoState();
     }
 
     // Append a fresh block INSIDE a container (card / section) — used when "+"
@@ -3908,6 +3912,7 @@ export function buildIframeScript() {
       inode.setAttribute('data-flash', '1');
       setTimeout(function () { inode.removeAttribute('data-flash'); }, 1200);
       scanBrokenMedia();
+      if (typeof refreshVideoState === 'function') refreshVideoState();
     }
   });
 
