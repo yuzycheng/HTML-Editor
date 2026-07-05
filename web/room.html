@@ -862,11 +862,27 @@
 <div class="toast" id="toast" style="position:fixed;bottom:60px;left:50%;transform:translateX(-50%) translateY(8px);background:var(--ink);color:var(--paper);padding:8px 16px;font-size:12px;border-radius:6px;opacity:0;transition:all 200ms;pointer-events:none;z-index:9998;"></div>
 
 <script type="module">
-  /* Cache-bust the whole editor JS chain (room, parser, iframe-injection,
-     export, collab) so a fresh deploy shows up without a manual hard refresh.
-     The version query is read back inside room.js and propagated to its own
-     module imports. Vendor libs (yjs) load via importmap and stay cached. */
-  import('./src/room.js?v=' + Date.now());
+  /* Cache-bust the editor JS chain ONLY when new code ships — not on every
+     load. The deploy workflow replaces __HCE_BUILD__ with the commit SHA, so
+     normal reloads hit the browser cache (fast + resilient on slow / flaky /
+     cross-border networks) while a fresh deploy fetches once. On localhost we
+     use a timestamp for dev convenience. The .catch surfaces a "refresh to
+     retry" hint instead of an endless spinner if a module fetch is dropped. */
+  (function () {
+    var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    var token = isLocal ? String(Date.now()) : '__HCE_BUILD__';
+    import('./src/room.js?v=' + token).catch(function (e) {
+      console.error('[hce] editor failed to load:', e);
+      var cl = document.getElementById('canvas-loading');
+      if (!cl) return;
+      var sp = cl.querySelector('.cl-spin'); if (sp) sp.style.display = 'none';
+      var t = cl.querySelector('.cl-text');
+      var s = cl.querySelector('.cl-sub');
+      var zh = (navigator.language || '').toLowerCase().indexOf('zh') === 0;
+      if (t) t.textContent = zh ? '加载失败，请刷新页面重试' : 'Failed to load — please refresh.';
+      if (s) s.textContent = zh ? '若反复失败，可能是到服务器的网络连接不稳定。' : 'If it keeps failing, the connection to the server may be unstable.';
+    });
+  })();
 </script>
 </body>
 </html>

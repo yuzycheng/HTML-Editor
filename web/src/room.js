@@ -9,10 +9,20 @@
 //              for whole-document notes.
 // ─────────────────────────────────────────────────
 
-// Cache-busting version, propagated from room.html (?v=<timestamp>) to every
+// Cache-busting version, propagated from room.html (?v=<build>) to every
 // editor module below so a fresh deploy is never served from a stale browser
 // cache. Empty string when loaded without a query (falls back to normal cache).
 const __V = new URL(import.meta.url).search;
+
+// Load an editor module with the deploy version, falling back to the plain
+// (cacheable) URL if the versioned fetch is dropped — so a single failed
+// request on a slow / flaky / cross-border network can't leave this top-level
+// await pending forever, which would freeze the page on the loading overlay.
+// Total failure rejects room.js's module promise, which room.html's loader
+// .catch surfaces as a "refresh to retry" hint instead of an endless spinner.
+function __loadMod(path) {
+  return import(path + __V).catch(() => import(path));
+}
 
 const [
   {
@@ -26,9 +36,9 @@ const [
   { buildIframeScript },
   { buildExportPrompt },
 ] = await Promise.all([
-  import('./parser.js' + __V),
-  import('./iframe-injection.js' + __V),
-  import('./export.js' + __V),
+  __loadMod('./parser.js'),
+  __loadMod('./iframe-injection.js'),
+  __loadMod('./export.js'),
 ]);
 
 const USER_COLORS = [
@@ -270,7 +280,7 @@ async function init() {
       const collabTimeout = new Promise((_, rej) => {
         collabTimer = setTimeout(() => rej(new Error('collab connect timed out')), 8000);
       });
-      const { connectCollab } = await Promise.race([import('./collab.js' + __V), collabTimeout]);
+      const { connectCollab } = await Promise.race([__loadMod('./collab.js'), collabTimeout]);
       state.collab = await Promise.race([connectCollab(state, {
         onBlockTextChange: (id, text) => {
           // While the iframe is being rebuilt due to a structural change,
