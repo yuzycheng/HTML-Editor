@@ -1435,6 +1435,15 @@ export function buildIframeScript() {
   // a different kind (photo ↔ video) → ask the parent to swap the element's tag.
   function commitMedia(el, targetKind, src) {
     if (!src) return;
+    // A video hosted on YouTube / Vimeo / Bilibili can't play in a <video> tag —
+    // it needs an <iframe> embed. Detect those and ask the parent to swap the
+    // block to an embed iframe (which also travels in the downloaded HTML, so
+    // the video plays anywhere the file is opened — no upload, no size limit).
+    var embed = (targetKind === 'video') ? videoEmbedUrl(src) : null;
+    if (embed) {
+      window.parent.postMessage({ type: 'request-swap-media', id: el.getAttribute('data-block-id'), kind: 'video', src: embed, embed: true }, '*');
+      return;
+    }
     if (targetKind === mediaKindOf(el)) { setMediaSrc(el, src); return; }
     window.parent.postMessage({ type: 'request-swap-media', id: el.getAttribute('data-block-id'), kind: targetKind, src: src }, '*');
   }
@@ -1460,7 +1469,48 @@ export function buildIframeScript() {
     if (t.indexOf('audio/') === 0) return 'audio';
     return 'image';
   }
+  // Turn a YouTube / Vimeo / Bilibili watch URL into its <iframe> embed URL, so
+  // pasting a normal video link actually plays (those hosts can't stream into a
+  // <video> tag). Returns null for anything that isn't a known embeddable host.
+  // No heavy regex (backslashes are fragile in this injected template string) —
+  // parse with plain string ops.
+  function videoEmbedUrl(u) {
+    if (!u) return null;
+    var s = String(u).trim();
+    var low = s.toLowerCase();
+    function qparam(url, key) {
+      var qi = url.indexOf('?'); if (qi < 0) return null;
+      var parts = url.slice(qi + 1).split('#')[0].split('&');
+      for (var i = 0; i < parts.length; i++) { var kv = parts[i].split('='); if (kv[0] === key) return decodeURIComponent(kv[1] || ''); }
+      return null;
+    }
+    function lastSeg(url) {
+      var clean = url.split('?')[0].split('#')[0];
+      var segs = clean.split('/');
+      for (var i = segs.length - 1; i >= 0; i--) { if (segs[i]) return segs[i]; }
+      return '';
+    }
+    function isDigits(x) { for (var i = 0; i < x.length; i++) { var c = x.charCodeAt(i); if (c < 48 || c > 57) return false; } return x.length > 0; }
+    if (low.indexOf('youtube.com') >= 0 || low.indexOf('youtu.be') >= 0) {
+      var yid = null;
+      if (low.indexOf('youtu.be/') >= 0) yid = lastSeg(s);
+      else if (low.indexOf('/watch') >= 0) yid = qparam(s, 'v');
+      else if (low.indexOf('/embed/') >= 0) yid = lastSeg(s);
+      else if (low.indexOf('/shorts/') >= 0) yid = lastSeg(s);
+      if (yid) return 'https://www.youtube.com/embed/' + yid;
+    }
+    if (low.indexOf('vimeo.com') >= 0) {
+      var vid = lastSeg(s);
+      if (isDigits(vid)) return 'https://player.vimeo.com/video/' + vid;
+    }
+    if (low.indexOf('bilibili.com') >= 0) {
+      var segs = s.split('?')[0].split('#')[0].split('/');
+      for (var i = 0; i < segs.length; i++) { if (segs[i].toLowerCase().indexOf('bv') === 0) return 'https://player.bilibili.com/player.html?bvid=' + segs[i] + '&autoplay=0'; }
+    }
+    return null;
+  }
   function mediaKindFromUrl(u) {
+    if (videoEmbedUrl(u)) return 'video';   // YouTube/Vimeo/Bilibili → embeddable video
     var lo = (u || '').toLowerCase(), i = lo.indexOf('?'); if (i >= 0) lo = lo.slice(0, i);
     i = lo.indexOf('#'); if (i >= 0) lo = lo.slice(0, i);
     var vid = ['.mp4', '.webm', '.ogv', '.mov', '.m4v'];

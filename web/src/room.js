@@ -823,7 +823,7 @@ function handleIframeMessage(e) {
   }
 
   if (d.type === 'request-swap-media') {
-    swapMediaType(d.id, d.kind, d.src);
+    swapMediaType(d.id, d.kind, d.src, d.embed);
   }
 
   if (d.type === 'request-move-into') {
@@ -1636,11 +1636,32 @@ function placeBeside(movingId, targetId, side) {
 // (minus aspect-ratio, which was tied to the old kind), and swap it in place.
 // Surgical for the initiator (replace-element); applyStructuralPatch detects the
 // tag change so remote collaborators swap too.
-function swapMediaType(id, kind, src) {
+function swapMediaType(id, kind, src, embed) {
   if (!state.skeleton || !id || !src) return;
   const doc = new DOMParser().parseFromString(state.skeleton, 'text/html');
   const el = doc.querySelector(`[data-block-id="${id}"]`);
   if (!el) return;
+  // A hosted video (YouTube / Vimeo / Bilibili) plays only in an <iframe> embed,
+  // not a <video>. Replace the placeholder with a responsive 16:9 embed. It's
+  // stored in the skeleton, so it syncs, survives refresh, and rides along in
+  // the downloaded HTML — the video plays wherever the file is opened.
+  if (embed) {
+    const frame = doc.createElement('iframe');
+    frame.setAttribute('data-block-id', id);
+    frame.setAttribute('src', src);
+    frame.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+    frame.setAttribute('allowfullscreen', '');
+    frame.setAttribute('loading', 'lazy');
+    const base = (el.getAttribute('style') || '').replace(/aspect-ratio\s*:[^;]*;?/gi, '').trim();
+    frame.setAttribute('style', (base ? base + ';' : '') + 'display:block;width:100%;max-width:560px;aspect-ratio:16/9;height:auto;border:0;border-radius:8px;margin:12px 0;');
+    el.replaceWith(frame);
+    state.skeleton = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+    sendToIframe({ cmd: 'replace-element', id, html: frame.outerHTML });
+    state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
+    markSaving();
+    toast(t('t_video_added'));
+    return;
+  }
   const newTag = kind === 'video' ? 'video' : 'img';
   if (el.tagName.toLowerCase() === newTag) {   // same kind — reuse the source path
     persistMediaSrc(id, src);
