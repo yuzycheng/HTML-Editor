@@ -1171,7 +1171,31 @@ function resolveStructuralTarget(elementId) {
     if (t === 'TABLE') break;       // clicked the table itself — leave it alone
     cur = cur.parentElement;
   }
-  return elementId;
+  // A lone text leaf inside a styling wrapper — e.g. <blockquote><p>…</p>,
+  // <div class="callout"><p>…</p>, <figure><img>… — visually reads as ONE
+  // block, so selecting it (a single click lands on the inner leaf, not the
+  // wrapper) and duplicating should copy the WHOLE wrapper, not just the text.
+  // Climb while the element is the ONLY block child of its parent (i.e. the
+  // parent exists solely to contain/style it). Lists and tables are excluded
+  // so their own duplicate rules keep working.
+  const SKIP_WRAP = new Set(['TABLE','THEAD','TBODY','TFOOT','TR','TD','TH','UL','OL','LI','DL','DT','DD']);
+  let node = el;
+  while (
+    node.parentElement &&
+    node.parentElement !== doc.body &&
+    node.parentElement !== doc.documentElement &&
+    node.parentElement.hasAttribute('data-block-id') &&
+    !SKIP_WRAP.has(node.parentElement.tagName)
+  ) {
+    const parent = node.parentElement;
+    let blockChildren = 0;
+    for (let c = parent.firstElementChild; c; c = c.nextElementSibling) {
+      if (c.hasAttribute && c.hasAttribute('data-block-id')) blockChildren++;
+    }
+    if (blockChildren !== 1) break;   // parent holds more than just this → keep the leaf
+    node = parent;
+  }
+  return node.getAttribute('data-block-id') || elementId;
 }
 
 function deleteColumn(cellId) {
