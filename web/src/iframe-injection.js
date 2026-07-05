@@ -1102,6 +1102,11 @@ export function buildIframeScript() {
     if (e.target.closest && e.target.closest('a')) e.preventDefault();   // don't navigate while editing
     if (tools && tools.contains(e.target)) return;
     if (e.target.closest && e.target.closest('#__hce-tablectl,#__hce-table-menu')) return;   // controls handle their own clicks
+    // A click on a frozen-video cover already selected the video on mousedown —
+    // don't let this handler run pickTarget (which returns null for the cover
+    // overlay) and immediately hideTools(), which is why the toolbar vanished
+    // the instant the mouse came up.
+    if (e.target.closest && e.target.closest('.__hce-video-cover')) return;
     hideTableMenu();   // any other click closes an open row/column popover
     if (e.target.closest && e.target.closest('#__hce-hover-handle')) return;   // grabbing the handle isn't a selection click
     var deepest = pickTarget(e.target);
