@@ -1648,6 +1648,7 @@ function swapMediaType(id, kind, src, embed) {
   if (embed) {
     const frame = doc.createElement('iframe');
     frame.setAttribute('data-block-id', id);
+    frame.setAttribute('data-hce-video', 'embed');
     frame.setAttribute('src', src);
     frame.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
     frame.setAttribute('allowfullscreen', '');

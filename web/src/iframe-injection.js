@@ -225,6 +225,8 @@ export function buildIframeScript() {
     // Blocks bound to a URL show a pointer cursor in edit/view; in view mode a
     // click navigates (handled below). Keep the cursor in sync on every switch.
     document.querySelectorAll('[data-hce-href]').forEach(function (el) { el.style.cursor = 'pointer'; });
+    // Videos play only in View — freeze them to selectable posters elsewhere.
+    if (typeof refreshVideoState === 'function') refreshVideoState();
   }
 
   // ─── Edit: input → parent ─────────────────────
@@ -1156,7 +1158,10 @@ export function buildIframeScript() {
   window.addEventListener('scroll', function() {
     if (toolsTarget) showToolsOn(toolsTarget, toolsCellId);
     else if (tableCtlId != null) positionTableControls();
+    if (typeof positionVideoCovers === 'function') positionVideoCovers();
   }, true);
+  // Keep the frozen-video overlays glued to their elements on window resize too.
+  window.addEventListener('resize', function () { if (typeof positionVideoCovers === 'function') positionVideoCovers(); }, true);
   // Mouse leaves / window blur — keep selection but hide visual to be tidy.
   window.addEventListener('blur', function() { /* keep selection */ });
 
@@ -1796,6 +1801,132 @@ export function buildIframeScript() {
       var t = e.target;
       if (t && (t.tagName === 'IMG' || t.tagName === 'VIDEO') && !t.__hcePhDone) makeMediaPlaceholder(t);
     }, true);
+  }
+
+  // ─── [ADDITION · videos are edit-safe posters, play ONLY in View] ───
+  // A <video> or a hosted-video <iframe> (YouTube / Vimeo / Bilibili) plays
+  // only in View mode. In every editing mode it shows its poster / first frame
+  // under a translucent play badge: you can select, move, resize and (for a
+  // <video>) crop it like an image, but it never plays, never steals clicks,
+  // and never z-stacks over the editor UI. The badge is a fixed-position
+  // overlay tracked to the element's rect (like the toolbar) — nothing is
+  // injected into the document itself, so export / sync are untouched.
+  var videoCovers = [];   // [{ el, cover }]
+  function isHostedVideoFrame(el) {
+    return el && el.tagName === 'IFRAME' && el.getAttribute('data-hce-video') === 'embed';
+  }
+  function editableVideos() {
+    var out = [];
+    var vids = document.querySelectorAll('video');
+    for (var i = 0; i < vids.length; i++) {
+      var v = vids[i];
+      if (v.closest && v.closest('#__hce-style-panel')) continue;
+      // Skip a hidden shell <video> left behind an upload placeholder or a
+      // link→embed swap (display:none / zero-size): it isn't the visible media,
+      // and binding a cover to it would place the badge at 0×0 (invisible).
+      if (v.__hcePh) continue;
+      var cs = window.getComputedStyle ? getComputedStyle(v) : null;
+      if (cs && cs.display === 'none') continue;
+      var r = v.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) continue;
+      out.push(v);
+    }
+    var frames = document.querySelectorAll('iframe[data-hce-video="embed"]');
+    for (var j = 0; j < frames.length; j++) out.push(frames[j]);
+    return out;
+  }
+  function coverRecFor(el) {
+    for (var i = 0; i < videoCovers.length; i++) if (videoCovers[i].el === el) return videoCovers[i];
+    return null;
+  }
+  function ensureVideoCover(el) {
+    var rec = coverRecFor(el);
+    if (rec) return rec;
+    var cover = document.createElement('div');
+    cover.className = '__hce-video-cover';
+    cover.setAttribute('contenteditable', 'false');
+    cover.style.cssText = 'position:fixed;z-index:2147483530;display:none;box-sizing:border-box;'
+      + 'align-items:center;justify-content:center;background:rgba(17,24,39,.12);';
+    var badge = document.createElement('div');
+    badge.style.cssText = 'width:48px;height:48px;border-radius:999px;background:rgba(17,24,39,.6);'
+      + 'display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.25);';
+    badge.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+    cover.appendChild(badge);
+    cover.addEventListener('mousedown', function (e) {
+      var target = cover.__hceFor;
+      if (!target || !document.contains(target)) return;
+      if (mode === 'edit') {
+        e.preventDefault(); e.stopPropagation();
+        showToolsOn(target, null);
+      } else if (mode === 'drag') {
+        e.preventDefault(); e.stopPropagation();
+        var unit = (typeof draggableAncestor === 'function' && draggableAncestor(target)) || target;
+        startBlockDrag(unit, e);
+      } else if (mode === 'comment') {
+        e.preventDefault(); e.stopPropagation();
+        var id = target.getAttribute('data-block-id');
+        if (id) window.parent.postMessage({ type: 'comment-toggle-select', id: id, tag: target.tagName.toLowerCase(), snippet: pt('add_video') }, '*');
+      }
+    }, true);
+    document.body.appendChild(cover);
+    rec = { el: el, cover: cover };
+    videoCovers.push(rec);
+    return rec;
+  }
+  function removeVideoCover(el) {
+    for (var i = videoCovers.length - 1; i >= 0; i--) {
+      if (videoCovers[i].el === el) {
+        if (videoCovers[i].cover && videoCovers[i].cover.parentNode) videoCovers[i].cover.parentNode.removeChild(videoCovers[i].cover);
+        videoCovers.splice(i, 1);
+      }
+    }
+  }
+  function positionOneCover(rec) {
+    var el = rec.el, cover = rec.cover;
+    if (!el || !document.contains(el)) { cover.style.display = 'none'; return; }
+    var r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) { cover.style.display = 'none'; return; }
+    cover.style.display = 'flex';
+    cover.style.left = Math.round(r.left) + 'px';
+    cover.style.top = Math.round(r.top) + 'px';
+    cover.style.width = Math.round(r.width) + 'px';
+    cover.style.height = Math.round(r.height) + 'px';
+    try { var br = getComputedStyle(el).borderRadius; if (br && br !== '0px') cover.style.borderRadius = br; else cover.style.borderRadius = '8px'; } catch (e) { cover.style.borderRadius = '8px'; }
+  }
+  function positionVideoCovers() {
+    for (var i = 0; i < videoCovers.length; i++) positionOneCover(videoCovers[i]);
+  }
+  function refreshVideoState() {
+    var list = editableVideos();
+    for (var k = videoCovers.length - 1; k >= 0; k--) {
+      if (list.indexOf(videoCovers[k].el) < 0) removeVideoCover(videoCovers[k].el);
+    }
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i];
+      var isFrame = isHostedVideoFrame(el);
+      if (mode === 'view') {
+        removeVideoCover(el);
+        if (!isFrame) {
+          if (el.__hceHadControls !== false) el.setAttribute('controls', '');
+          el.style.pointerEvents = '';
+        } else {
+          el.style.pointerEvents = '';
+        }
+      } else {
+        if (!isFrame) {
+          if (el.__hceHadControls === undefined) el.__hceHadControls = el.hasAttribute('controls');
+          el.removeAttribute('controls');
+          try { if (el.pause) el.pause(); } catch (e) {}
+          el.style.pointerEvents = '';   // no controls → a click selects the <video>, never plays
+        } else {
+          el.style.pointerEvents = 'none';   // block the platform's own UI; the cover proxies selection
+        }
+        var rec = ensureVideoCover(el);
+        rec.cover.__hceFor = el;
+        rec.cover.style.pointerEvents = isFrame ? 'auto' : 'none';
+        positionOneCover(rec);
+      }
+    }
   }
 
   // ─── [ADDITION · drag to reorder] ───
@@ -2491,7 +2622,7 @@ export function buildIframeScript() {
     if (anyPickerOpen()) { hideAllGrips(); if (hoverHandle) hoverHandle.style.display = 'none'; return; }
     if (croppingEl === el) { hideAllGrips(); hoverHandle.style.display = 'none'; return; }   // the crop overlay owns its own handles
     var r = el.getBoundingClientRect();
-    var isMedia = el.tagName === 'IMG' || el.tagName === 'VIDEO';
+    var isMedia = el.tagName === 'IMG' || el.tagName === 'VIDEO' || (el.tagName === 'IFRAME' && el.getAttribute('data-hce-video') === 'embed');
     // A committed crop shrinks what's VISIBLE; place the handles on that visible
     // rectangle (read from the inline clip-path) rather than the full image box.
     var crop = isMedia ? readCropFrac(el) : null;
@@ -2683,7 +2814,7 @@ export function buildIframeScript() {
       var cellTbl = el.closest('table[data-block-id], table');
       if (cellTbl && cellTbl.getAttribute && cellTbl.getAttribute('data-block-id')) el = cellTbl;
     }
-    var media = el.tagName === 'IMG' || el.tagName === 'VIDEO';
+    var media = el.tagName === 'IMG' || el.tagName === 'VIDEO' || (el.tagName === 'IFRAME' && el.getAttribute('data-hce-video') === 'embed');
     ['width', 'height', 'min-height', 'max-width', 'aspect-ratio', 'object-fit', 'margin-left', 'margin-top'].forEach(function (p) { el.style.removeProperty(p); });
     if (media) { el.style.setProperty('width', '100%'); el.style.setProperty('height', 'auto'); el.style.setProperty('max-width', '100%'); }
     positionPins(el);
@@ -2710,7 +2841,7 @@ export function buildIframeScript() {
       boxExtraW = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
       boxExtraH = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
     }
-    var isMedia = el.tagName === 'IMG' || el.tagName === 'VIDEO';
+    var isMedia = el.tagName === 'IMG' || el.tagName === 'VIDEO' || (el.tagName === 'IFRAME' && el.getAttribute('data-hce-video') === 'embed');
     var isTable = el.tagName === 'TABLE';
     // Table cells: resize by column / row (not by box center scaling).
     var isCell = el.tagName === 'TD' || el.tagName === 'TH';
@@ -3512,6 +3643,7 @@ export function buildIframeScript() {
     if (d.cmd === 'set-media-src') {
       var mel = document.querySelector('[data-block-id="' + d.id + '"]');
       if (mel && (mel.tagName === 'IMG' || mel.tagName === 'VIDEO' || mel.tagName === 'AUDIO')) applyMediaSrc(mel, d.src);
+      if (typeof refreshVideoState === 'function') refreshVideoState();
     }
 
     // Replace an element wholesale (e.g. image ↔ video type swap). Keeps the
@@ -3536,6 +3668,7 @@ export function buildIframeScript() {
           if (rWasPinned) unpinHandle();
           if (rWasTooled) hideTools();
           scanBrokenMedia();
+          if (typeof refreshVideoState === 'function') refreshVideoState();
           // After a table row/column insert (whole-table swap), bring the
           // Notion-style controls back on the fresh table so repeated inserts
           // stay fluid without a re-click.
@@ -4956,6 +5089,12 @@ export function buildIframeScript() {
 
   // 检测缺失的图片/视频，原地放一个可上传的占位
   initMediaPlaceholders();
+
+  // 视频只在阅读模式可播放；其余模式冻结为可选中的封面。初始渲染后再刷新一次，
+  // 因为视频 / 嵌入 iframe 的布局尺寸可能晚于首帧脚本才稳定。
+  refreshVideoState();
+  setTimeout(refreshVideoState, 400);
+  setTimeout(refreshVideoState, 1200);
 
   // 悬停即出现拖拽手柄（Notion 式）
   initHoverHandle();
