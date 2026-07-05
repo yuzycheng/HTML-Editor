@@ -1212,6 +1212,17 @@ export function buildIframeScript() {
   });
 
   document.addEventListener('click', function(e) {
+    // Link navigation is a VIEW-mode-only affordance. In every other mode
+    // (edit / drag / block / comment) a click must never navigate — not via a
+    // native <a href> and not via a whole-block data-hce-href. Killing the
+    // default here, at the very top of the capture-phase handler, closes every
+    // leak at once (e.g. clicking a linked image in drag mode used to open the
+    // URL because nothing cancelled the browser's native anchor navigation).
+    if (mode !== 'view') {
+      if (e.target.closest && (e.target.closest('a[href]') || e.target.closest('[data-hce-href]'))) {
+        e.preventDefault();
+      }
+    }
     // View / read mode → no editing. Plain text links and link-bound blocks
     // navigate; everything else is inert so users can read without changing.
     if (mode === 'view') {
