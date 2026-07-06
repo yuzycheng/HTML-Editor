@@ -1896,7 +1896,13 @@ function persistMediaSrc(id, src) {
   if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') el.querySelectorAll('source').forEach(s => s.removeAttribute('src'));
   el.setAttribute('src', src);
   state.skeleton = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
-  state.collab?.persistSkeleton?.(state.skeleton);
+  // Route through the TRACKED structural path (LOCAL_ORIGIN) — NOT
+  // persistSkeleton (STYLE_ORIGIN, invisible to the UndoManager) — so an
+  // uploaded or replaced image/video is a discrete, undoable step. blocks are
+  // unchanged (same text leaves); only the src attribute moved. stopCapturing
+  // makes it its own undo entry instead of merging with an adjacent edit.
+  state.collab?.stopCapturing?.();
+  state.collab?.onLocalStructureChange?.(state.skeleton, state.blocks);
   markSaving();
 }
 
