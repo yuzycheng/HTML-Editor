@@ -2311,13 +2311,20 @@ export function buildIframeScript() {
       for (var rc = rowParent.firstElementChild; rc; rc = rc.nextElementSibling) {
         if (rc.nodeType === 1 && rc.hasAttribute('data-block-id') && isDragMovableBlock(rc)) cols.push(rc);
       }
-      // Find the sibling column the cursor is over (or nearest by X).
-      var tgt = null, bestDx = Infinity;
+      // Find the sibling cell the cursor is over (or nearest). A grid can wrap
+      // onto MULTIPLE rows (a 3×3 九宫格): matching by X alone collapses every
+      // card in a column to its topmost one, so only 2-3 targets are reachable
+      // and drops onto lower cards scramble the order. Match by 2D distance so
+      // every cell is a valid target — the cursor's card (distance 0, cells
+      // don't overlap) wins, and between cells the nearest by X+Y wins.
+      var tgt = null, bestD = Infinity;
       for (var ci = 0; ci < cols.length; ci++) {
         if (cols[ci] === el) continue;
         var cr = cols[ci].getBoundingClientRect();
         var dx = cx < cr.left ? cr.left - cx : (cx > cr.right ? cx - cr.right : 0);
-        if (dx < bestDx) { bestDx = dx; tgt = cols[ci]; }
+        var dy = cy < cr.top ? cr.top - cy : (cy > cr.bottom ? cy - cr.bottom : 0);
+        var d2 = dx * dx + dy * dy;
+        if (d2 < bestD) { bestD = d2; tgt = cols[ci]; }
       }
       if (!tgt) { blockDrag.mode = 'none'; blockDrag.target = null; line.style.display = 'none'; dot.style.display = 'none'; return; }
       var tr = tgt.getBoundingClientRect();
