@@ -4043,6 +4043,53 @@ export function buildIframeScript() {
   }
   function origColorKey() { return '__hceOrig_' + activeColorProp(); }
 
+  // Collapsed tables resolve every shared border by conflict rules. Merely
+  // changing a td/th's border-color can therefore lose one or more sides to
+  // its neighbours. Draw a matching inset outline inside the selected cell so
+  // all four sides stay visible without changing table geometry. Preserve any
+  // pre-existing inline box-shadow and restore it on Clear / Reset.
+  var CELL_OUTLINE_BASE = '--hce-cell-outline-base';
+  var CELL_OUTLINE_VISUAL = '--hce-cell-outline-visual';
+  var CELL_OUTLINE_PRIORITY = '--hce-cell-outline-priority';
+  var CELL_OUTLINE_COLOR = '--hce-cell-outline-color';
+  var CELL_OUTLINE_NONE = '__hce_none__';
+  function isTableCell(el) {
+    return !!el && (el.tagName === 'TD' || el.tagName === 'TH');
+  }
+  function cellOutlineBase(el) {
+    var stored = el.style.getPropertyValue(CELL_OUTLINE_BASE).trim();
+    if (!stored) {
+      var original = el.style.getPropertyValue('box-shadow').trim();
+      var computed = getComputedStyle(el).boxShadow;
+      var visual = original || ((computed && computed !== 'none') ? computed : '');
+      var priority = el.style.getPropertyPriority('box-shadow') || 'normal';
+      el.style.setProperty(CELL_OUTLINE_BASE, original || CELL_OUTLINE_NONE);
+      el.style.setProperty(CELL_OUTLINE_VISUAL, visual || CELL_OUTLINE_NONE);
+      el.style.setProperty(CELL_OUTLINE_PRIORITY, priority);
+      return visual;
+    }
+    var visualStored = el.style.getPropertyValue(CELL_OUTLINE_VISUAL).trim();
+    if (visualStored) return visualStored === CELL_OUTLINE_NONE ? '' : visualStored;
+    return stored === CELL_OUTLINE_NONE ? '' : stored;
+  }
+  function applyCellOutline(el, color) {
+    var base = cellOutlineBase(el);
+    var inset = 'inset 0 0 0 2px ' + color;
+    el.style.setProperty(CELL_OUTLINE_COLOR, color);
+    el.style.setProperty('box-shadow', (base && base !== 'none') ? (base + ', ' + inset) : inset, 'important');
+  }
+  function clearCellOutline(el) {
+    var stored = el.style.getPropertyValue(CELL_OUTLINE_BASE).trim();
+    if (!stored) return;
+    var priority = el.style.getPropertyValue(CELL_OUTLINE_PRIORITY).trim();
+    if (stored === CELL_OUTLINE_NONE) el.style.removeProperty('box-shadow');
+    else el.style.setProperty('box-shadow', stored, priority === 'important' ? 'important' : '');
+    el.style.removeProperty(CELL_OUTLINE_BASE);
+    el.style.removeProperty(CELL_OUTLINE_VISUAL);
+    el.style.removeProperty(CELL_OUTLINE_PRIORITY);
+    el.style.removeProperty(CELL_OUTLINE_COLOR);
+  }
+
   // ─── 样式 Undo / Redo 栈 ───
   // 独立于 Yjs UndoManager（只追踪文字）。
   // Cmd+Z 优先撤销样式；样式栈空了再 fall through 到 Yjs（撤销文字）。
@@ -4456,7 +4503,7 @@ export function buildIframeScript() {
     // Apply a color to whichever property is active (font / fill / border).
     // The sentinel 'transparent' clears the surface (e.g. a table cell fill
     // back to see-through) instead of painting a hex.
-    function applyColor(hex) {
+    function applyColor(hex, restoringOriginal) {
       if (!styleTarget) return;
       maybeStartStyleChange(styleTarget);
       var prop = activeColorProp();
@@ -4476,6 +4523,13 @@ export function buildIframeScript() {
           var cs = getComputedStyle(styleTarget);
           if (parseFloat(cs.borderTopWidth) === 0) styleTarget.style.setProperty('border-width', '2px', 'important');
           if (cs.borderTopStyle === 'none') styleTarget.style.setProperty('border-style', 'solid', 'important');
+        }
+        // border-collapse can hide shared td/th borders behind a neighbour.
+        // The inset outline is independent of that conflict and shows all four
+        // sides. Clear/Reset restores the cell's original box-shadow exactly.
+        if (isTableCell(styleTarget)) {
+          if (isClear || restoringOriginal) clearCellOutline(styleTarget);
+          else applyCellOutline(styleTarget, val);
         }
       } else if (prop === 'fill') {
         // SVG: selecting a whole <svg>/<g> container should recolour the shapes
@@ -4520,7 +4574,7 @@ export function buildIframeScript() {
       if (!styleTarget) return;
       var c = styleTarget[origColorKey()];
       if (!c) return;
-      applyColor(c);
+      applyColor(c, true);
       markActiveSwatch(c);
       refreshResetState(c);
       var hexEl = stylePanel.querySelector('.sp-hex');
