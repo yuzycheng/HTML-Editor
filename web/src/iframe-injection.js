@@ -330,10 +330,11 @@ export function buildIframeScript() {
       el = par;
     }
     // Refuse to target <body> / <html> — would nuke the whole doc.
-    // Table interactions are table-level by default: selecting a cell should
-    // still expose row/column controls, but resize/move should act on the
-    // whole table (same behavior as parsed existing tables).
-    if (el && (el.tagName === 'TD' || el.tagName === 'TH')) {
+    // In edit mode a cell must remain the target so text colour / weight /
+    // alignment applies to that cell only and the dedicated row/column bars
+    // can use its id. Other modes keep the historical table-level target for
+    // whole-table delete, comment and drag behaviour.
+    if (mode !== 'edit' && el && (el.tagName === 'TD' || el.tagName === 'TH')) {
       var tbl = el.closest && el.closest('table[data-block-id], table');
       if (tbl && tbl.getAttribute && tbl.getAttribute('data-block-id')) el = tbl;
     }
@@ -676,7 +677,10 @@ export function buildIframeScript() {
     toolsCellId = cellId || null;
     renderToolsContent();
     el.classList.add('__hce-selected-tools');
-    pinHandleTo(el);   // keep a drag handle pinned to the selected element
+    // Cells use the dedicated row/column controls; generic resize grips on a
+    // single td/th would distort the table while the user is styling text.
+    if (cellId) unpinHandle();
+    else pinHandleTo(el);   // keep resize grips pinned to normal blocks
     var r = el.getBoundingClientRect();
     t.style.display = 'flex';
     requestAnimationFrame(function() {
@@ -1132,6 +1136,11 @@ export function buildIframeScript() {
     if (e.target.closest && e.target.closest('.__hce-video-cover')) return;
     hideTableMenu();   // any other click closes an open row/column popover
     if (e.target.closest && e.target.closest('#__hce-hover-handle')) return;   // grabbing the handle isn't a selection click
+    // A browser double-click emits two click events. The second one used to
+    // trigger click-to-climb (cell → row → table), replacing the intended word
+    // selection with an unexpectedly large orange frame. Keep the first click's
+    // target pinned and let native double/triple-click text selection proceed.
+    if (e.detail > 1 && e.target.closest && e.target.closest('[data-hce-text][contenteditable]')) return;
     var deepest = pickTarget(e.target);
     if (!deepest) { hideTools(); lastClickDeepest = null; return; }
     // Click-to-climb: a fresh click selects the deepest block under the cursor;
@@ -1140,7 +1149,8 @@ export function buildIframeScript() {
     // keeps normal clicks predictable while still letting you reach big outer
     // containers by clicking again.
     var el = deepest;
-    if (toolsTarget && deepest === lastClickDeepest && toolsTarget !== document.body) {
+    var deepestCell = deepest && deepest.closest ? deepest.closest('td, th') : null;
+    if (!deepestCell && toolsTarget && deepest === lastClickDeepest && toolsTarget !== document.body) {
       var up = toolsTarget.parentElement && toolsTarget.parentElement.closest('[data-block-id]');
       if (up && up !== document.body && up !== document.documentElement) el = up;
       else el = toolsTarget;   // already at the top — stay
@@ -4427,10 +4437,17 @@ export function buildIframeScript() {
       // camelCase → kebab-case (fontSize → font-size 等)
       var cssProp = prop.replace(/[A-Z]/g, function(m) { return '-' + m.toLowerCase(); });
       styleTarget.style.setProperty(cssProp, val, 'important');
-      // color 要无脑打给所有后代元素 — 中间层 <a><strong> 等可能也有自己的 color
-      if (prop === 'color') {
+      // A cell may contain nested <span>/<strong>/<a> runs with their own
+      // formatting. Apply cell-wide text properties to descendants inside
+      // THIS cell so they cannot override the requested value; never cross
+      // into sibling cells.
+      var isCellTextProp = (styleTarget.tagName === 'TD' || styleTarget.tagName === 'TH') &&
+        (prop === 'fontWeight' || prop === 'fontStyle' || prop === 'textDecoration' || prop === 'fontSize');
+      // color also needs descendant propagation because intermediate links /
+      // strong runs may carry an explicit colour.
+      if (prop === 'color' || isCellTextProp) {
         styleTarget.querySelectorAll('*').forEach(function(child) {
-          child.style.setProperty('color', val, 'important');
+          child.style.setProperty(cssProp, val, 'important');
         });
       }
       debouncedCommitStyle();
@@ -4977,9 +4994,11 @@ export function buildIframeScript() {
     // ── Classify the target ──
     styleTargetIsSvg = !!(el.namespaceURI && el.namespaceURI.indexOf('svg') !== -1);
     var isTextLeaf = el.hasAttribute('data-hce-text');
-    // B/I/U + size only make sense for HTML text leaves.
-    styleTargetIsText = isTextLeaf && !styleTargetIsSvg;
     var elHasText = !!(el.textContent && el.textContent.trim());
+    var isTextCell = (el.tagName === 'TD' || el.tagName === 'TH') && elHasText;
+    // B/I/U + size apply to HTML text leaves and to a whole table cell whose
+    // text is split across nested spans/strong tags.
+    styleTargetIsText = (isTextLeaf || isTextCell) && !styleTargetIsSvg;
 
     // Does the element have a paintable surface (so Fill / Border are useful)?
     var hasFill, hasBorder;
