@@ -769,6 +769,14 @@ function applyStructuralPatch() {
         sendToIframe({ cmd: 'set-link', id, href: nHref, text: nEl.textContent });
       }
     }
+    // Reconcile whole-block links too. Without this, a collaborator receiving
+    // the saved skeleton could keep a stale/missing data-hce-href in the live
+    // iframe, so reopening the link popover incorrectly offered "Add".
+    const nBlockHref = nEl.getAttribute('data-hce-href') || '';
+    const oBlockHref = oEl.getAttribute('data-hce-href') || '';
+    if (nBlockHref !== oBlockHref) {
+      sendToIframe({ cmd: 'set-block-link', id, href: nBlockHref });
+    }
   });
 
   return true;
@@ -832,7 +840,7 @@ function handleIframeMessage(e) {
   }
 
   if (d.type === 'request-block-duplicate') {
-    duplicateBlock(d.id, d.afterId);
+    duplicateBlock(d.id, d.afterId, d.layout);
   }
 
   if (d.type === 'request-move') {
@@ -1315,10 +1323,10 @@ function moveRow(cellId, toIndex) {
   toast(t('t_moved'));
 }
 
-function duplicateBlock(rawId, afterId) {
+function duplicateBlock(rawId, afterId, layout) {
   const elementId = resolveStructuralTarget(rawId);
   const result = duplicateElementInSkeleton(
-    state.skeleton, elementId, state.blocks, afterId
+    state.skeleton, elementId, state.blocks, afterId, layout
   );
   if (result.skeleton === state.skeleton) return;
   state.skeleton = result.skeleton;

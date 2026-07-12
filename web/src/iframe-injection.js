@@ -412,18 +412,25 @@ export function buildIframeScript() {
   function isHorizontalColumn(el) {
     return !!horizontalRowParent(el);
   }
-  // The outermost horizontal row/card that contains the element as a (possibly
-  // nested) column. Used so duplicating a horizontal column drops the copy
-  // BELOW the whole row instead of squeezing a new column in (which overflows
-  // off-screen when the row cannot grow). Returns null for normal vertical
-  // blocks.
-  function outermostHorizontalRow(el) {
-    var row = null, cur = el, guard = 0;
-    while (cur && guard++ < 20) {
-      var hp = horizontalRowParent(cur) || insideHorizontalCard(cur);
-      if (hp && hp !== cur) { row = hp; cur = hp; } else break;
-    }
-    return row;
+  // Decide how a direct child of a horizontal layout should be duplicated.
+  // Grids and wrapping flex rows can safely keep the clone beside the source:
+  // the original CSS then gives it exactly the same column geometry and drag
+  // semantics. A non-wrapping flex row may shrink or overflow, so only that
+  // case detaches the clone below the row and carries its current width along.
+  function horizontalDuplicatePlan(el) {
+    var row = horizontalRowParent(el);
+    if (!row) return null;
+    var cs = getComputedStyle(row);
+    var isGrid = cs.display === 'grid' || cs.display === 'inline-grid';
+    var gridFlowsByColumn = isGrid && (cs.gridAutoFlow || '').indexOf('column') !== -1;
+    var flexCanWrap = (cs.display === 'flex' || cs.display === 'inline-flex') && cs.flexWrap !== 'nowrap';
+    if ((isGrid && !gridFlowsByColumn) || flexCanWrap) return { inPlace: true };
+    var r = el.getBoundingClientRect();
+    return {
+      inPlace: false,
+      afterId: row.getAttribute('data-block-id'),
+      width: Math.round(r.width * 1000) / 1000
+    };
   }
 
   // A "stack" container holds several stacked child blocks meant to be reordered
@@ -551,8 +558,8 @@ export function buildIframeScript() {
       // bars that hug the table (see showTableControls). The cell toolbar keeps
       // only what's cell-local: insert media/link INTO the cell, bind a link on
       // the whole cell, and style it.
-      var cellHasLink = toolsTarget && (toolsTarget.hasAttribute('data-hce-href') ||
-        (toolsTarget.closest && toolsTarget.closest('[data-hce-href]')));
+      var cellLinkTarget = blockLinkTarget(toolsTarget);
+      var cellHasLink = !!cellLinkTarget;
       tools.innerHTML =
           '<button class="add" title="' + pt('tb_add') + '">' + ICON_PLUS + '</button>'
         + '<span class="sep"></span>'
@@ -565,7 +572,7 @@ export function buildIframeScript() {
       });
       tools.querySelector('.blink').addEventListener('click', function(e) {
         e.preventDefault(); e.stopPropagation();
-        if (toolsTarget) openBlockLinkMenu(toolsTarget, e.currentTarget);
+        if (toolsTarget) openBlockLinkMenu(cellLinkTarget || toolsTarget, e.currentTarget);
       });
       tools.querySelector('.style').addEventListener('click', function(e) {
         e.preventDefault(); e.stopPropagation();
@@ -577,7 +584,8 @@ export function buildIframeScript() {
       var tIsMedia = toolsTarget && (toolsTarget.tagName === 'IMG' || toolsTarget.tagName === 'VIDEO' || toolsTarget.tagName === 'AUDIO' || tIsEmbedVideo);
       var tIsImage = toolsTarget && toolsTarget.tagName === 'IMG';
       var tIsLink = toolsTarget && toolsTarget.tagName === 'A' && toolsTarget.hasAttribute('data-hce-link');
-      var tHasLink = toolsTarget && (toolsTarget.hasAttribute('data-hce-href') || (toolsTarget.closest && toolsTarget.closest('[data-hce-href]')));
+      var tBlockLinkTarget = blockLinkTarget(toolsTarget);
+      var tHasLink = !!tBlockLinkTarget;
       // "+" inserts a new image / video frame right BELOW this block (the
       // audio-visual-document flow). Media blocks additionally get a "replace"
       // button; existing media can also be swapped image↔video from its menu.
@@ -611,7 +619,7 @@ export function buildIframeScript() {
       if (!tIsMedia && !tIsLink) {
         tools.querySelector('.blink').addEventListener('click', function(e) {
           e.preventDefault(); e.stopPropagation();
-          if (toolsTarget) openBlockLinkMenu(toolsTarget, e.currentTarget);
+          if (toolsTarget) openBlockLinkMenu(tBlockLinkTarget || toolsTarget, e.currentTarget);
         });
       }
       if (tIsImage) {
@@ -630,13 +638,16 @@ export function buildIframeScript() {
           type: 'request-block-duplicate',
           id: toolsTarget.getAttribute('data-block-id')
         };
-        // A horizontal column duplicated in place becomes a new column that can
-        // overflow off-screen (fixed-width / nowrap rows) or wrap unpredictably.
-        // Drop the copy BELOW the whole row instead so it is always visible and
-        // behaves consistently regardless of the row's CSS.
-        var dupRow = outermostHorizontalRow(toolsTarget);
-        if (dupRow && dupRow.getAttribute('data-block-id')) {
-          dupMsg.afterId = dupRow.getAttribute('data-block-id');
+        // Keep grid/wrapping-layout copies in their original CSS context so the
+        // clone stays proportional and remains a normal sibling drag target.
+        // Only a nowrap row detaches; preserve its rendered width in that case.
+        var dupPlan = horizontalDuplicatePlan(toolsTarget);
+        if (dupPlan && !dupPlan.inPlace && dupPlan.afterId) {
+          dupMsg.afterId = dupPlan.afterId;
+          dupMsg.layout = {
+            sourceId: toolsTarget.getAttribute('data-block-id'),
+            width: dupPlan.width
+          };
         }
         window.parent.postMessage(dupMsg, '*');
         hideTools();
@@ -1685,16 +1696,27 @@ export function buildIframeScript() {
     if (href) { el.setAttribute('data-hce-href', href); el.style.cursor = 'pointer'; }
     else { el.removeAttribute('data-hce-href'); el.style.cursor = ''; }
   }
+  // Resolve the element that owns an existing whole-block link. Selection can
+  // land on a child inside the linked card, or click-to-climb can select a
+  // wrapper around a previously linked child. Prefer self/ancestor; when the
+  // selected wrapper contains exactly one bound block, edit that binding too.
+  function blockLinkTarget(el) {
+    if (!el) return null;
+    if (el.hasAttribute && el.hasAttribute('data-hce-href')) return el;
+    var ancestor = el.closest && el.closest('[data-hce-href]');
+    if (ancestor) return ancestor;
+    if (!el.querySelectorAll) return null;
+    var descendants = el.querySelectorAll('[data-hce-href]');
+    return descendants.length === 1 ? descendants[0] : null;
+  }
   // Popover to bind / edit / remove a link on the selected block. Mirrors the
   // text-link menu but writes data-hce-href on the block and tells the parent
   // to persist it.
   function openBlockLinkMenu(el, box) {
-    // The bound URL may live on an ancestor (e.g. a whole card wrapped as the
-    // link). Edit / remove that one so re-opening always shows the real value.
-    if (el && !el.hasAttribute('data-hce-href') && el.closest) {
-      var bound = el.closest('[data-hce-href]');
-      if (bound) el = bound;
-    }
+    // Re-open the existing binding even when selection landed inside it or
+    // click-to-climb selected its outer wrapper.
+    var bound = blockLinkTarget(el);
+    if (bound) el = bound;
     closeMediaMenu();
     hideAllGrips(); if (hoverHandle) hoverHandle.style.display = 'none';
     var r = box.getBoundingClientRect();

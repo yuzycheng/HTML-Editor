@@ -268,7 +268,7 @@ export function moveIntoContainer(skeleton, movingId, containerId, atStart) {
  * local. Callers can pass `state.blocks.length` or compute from existing
  * IDs; we just need monotonically increasing values that don't collide.
  */
-export function duplicateElementInSkeleton(skeleton, elementId, existingBlocks, afterId) {
+export function duplicateElementInSkeleton(skeleton, elementId, existingBlocks, afterId, layout) {
   const doc = new DOMParser().parseFromString(skeleton, 'text/html');
   const target = doc.querySelector(`[data-block-id="${elementId}"]`);
   if (!target) return { skeleton, addedBlocks: [] };
@@ -287,6 +287,18 @@ export function duplicateElementInSkeleton(skeleton, elementId, existingBlocks, 
   for (const n of usedNums) if (n > counter) counter = n;
 
   const clone = target.cloneNode(true);
+
+  // When a direct child must leave a non-wrapping flex row, preserve the
+  // rendered width it had in that row. This prevents the detached copy from
+  // expanding to its new parent's full width and keeps later drags stable.
+  if (layout && layout.sourceId === elementId) {
+    const width = Number(layout.width);
+    if (Number.isFinite(width) && width > 0) {
+      clone.style.setProperty('box-sizing', 'border-box');
+      clone.style.setProperty('width', `${width}px`);
+      clone.style.setProperty('max-width', '100%');
+    }
+  }
 
   // Rewrite IDs on the clone itself + every descendant with data-block-id.
   const addedBlocks = [];
