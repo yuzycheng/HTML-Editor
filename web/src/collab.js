@@ -25,6 +25,23 @@
 import * as Y from 'yjs';
 import YPartyKitProvider from 'y-partykit/provider';
 
+function compactSkeleton(skeleton) {
+  const doc = new DOMParser().parseFromString(skeleton, 'text/html');
+  doc.querySelectorAll('[data-hce-text]').forEach(el => { el.textContent = ''; });
+  return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+}
+
+function applyStylesToSkeleton(skeleton, styles) {
+  const doc = new DOMParser().parseFromString(skeleton, 'text/html');
+  styles.forEach(({ id, style }) => {
+    const el = doc.querySelector(`[data-block-id="${id}"]`);
+    if (!el) return;
+    if (style) el.setAttribute('style', style);
+    else el.removeAttribute('style');
+  });
+  return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+}
+
 // Decide which PartyKit host to talk to.
 //
 // Three deploy targets coexist:
@@ -50,6 +67,14 @@ export async function connectCollab(state, handlers) {
   const yMeta = yDoc.getMap('meta');
   const yBlocks = yDoc.getMap('blocks');
   const yComments = yDoc.getMap('comments');
+  const yStyles = yDoc.getMap('styles');
+  let rejectedRemoteState = false;
+  const rejectRemoteState = () => {
+    if (rejectedRemoteState) return;
+    rejectedRemoteState = true;
+    provider.destroy();
+    handlers.onCapacityExceeded?.();
+  };
 
   const provider = new YPartyKitProvider(PARTYKIT_HOST, state.roomId, yDoc, {
     party: 'main',
@@ -68,10 +93,12 @@ export async function connectCollab(state, handlers) {
   // UndoManager — style undo/redo is owned by the iframe's own style history,
   // and we don't want a duplicate Yjs undo step for the same change.
   const STYLE_ORIGIN = 'hce-style';
-
   // ── Undo manager: tracks our own edits across blocks/meta/comments ──
-  const undoMgr = new Y.UndoManager([yBlocks, yMeta, yComments], {
-    captureTimeout: 150,
+  const undoMgr = new Y.UndoManager([yBlocks, yMeta, yComments, yStyles], {
+    // Longer than the iframe's 180 ms input debounce so one continuous typing
+    // session undoes as a natural unit. Structural/form actions explicitly call
+    // stopCapturing(), so they remain isolated.
+    captureTimeout: 750,
     trackedOrigins: new Set([LOCAL_ORIGIN]),
   });
 
@@ -84,38 +111,68 @@ export async function connectCollab(state, handlers) {
     handlers.onUsersChange?.(users);
   };
   provider.awareness.on('change', emitUsers);
-
-  // ── Wait for initial sync ────────────────────
-  await new Promise(resolve => {
-    if (provider.synced) return resolve();
-    let done = false;
-    const fin = () => { if (!done) { done = true; resolve(); } };
-    provider.once('synced', fin);
-    setTimeout(fin, 4000);    // safety timeout for first connection
+  provider.on('status', event => handlers.onConnectionStatus?.(event.status));
+  provider.on('connection-error', () => handlers.onConnectionStatus?.('disconnected'));
+  provider.on('synced', synced => {
+    if (synced) handlers.onConnectionStatus?.('connected');
   });
 
+  // ── Wait for initial sync ────────────────────
+  // A timeout is a connection failure, not evidence that the room is empty.
+  // Resolving here used to let a slow joiner publish its local demo document
+  // into an existing room before the server snapshot arrived.
+  try {
+    await new Promise((resolve, reject) => {
+      if (provider.synced) return resolve();
+      let done = false;
+      let timer;
+      const finish = (error) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (error) reject(error); else resolve();
+      };
+      provider.once('synced', () => finish());
+      // Initial documents can approach 12 MiB and y-partykit chunks updates
+      // above 1 MB, so allow slow/mobile links enough time to complete.
+      timer = setTimeout(() => finish(new Error('collaboration sync timed out')), 30000);
+    });
+  } catch (error) {
+    provider.destroy();
+    yDoc.destroy();
+    throw error;
+  }
+  // Ignore transient disconnect callbacks emitted during initial handshake;
+  // only the fully-returned collaboration object represents a hydrated room.
+  handlers.onConnectionStatus?.('connected');
+
   // ── Hydration ────────────────────────────────
-  const docHasBlocks = yBlocks.size > 0;
   const docHasMeta = yMeta.has('skeleton');
 
-  if (docHasMeta && docHasBlocks) {
-    // Late joiner — adopt doc state
-    state.skeleton = yMeta.get('skeleton');
-    state.filename = yMeta.get('filename') || state.filename;
-    state.blocks = [];
-    yBlocks.forEach((blockMap, id) => {
-      state.blocks.push({
-        id,
-        tag: blockMap.get('tag'),
-        text: blockMap.get('text').toString(),
+  if (docHasMeta) {
+      // Existing rooms always win over a local recovery snapshot. Automatically
+      // overwriting an LWW skeleton would erase collaborators' work whenever
+      // both sides changed while this client was offline. room.js keeps the
+      // recovery copy locally for an explicit/manual reconciliation flow.
+      state.skeleton = yMeta.get('skeleton');
+      state.filename = yMeta.get('filename') || state.filename;
+      state.blocks = [];
+      state.comments = {};
+      yBlocks.forEach((blockMap, id) => {
+        state.blocks.push({
+          id,
+          tag: blockMap.get('tag'),
+          text: blockMap.get('text').toString(),
+        });
       });
-    });
-    handlers.onSkeletonChanged?.();
-    document.getElementById('fname').textContent = state.filename;
-  } else {
+      const hydratedStyles = [];
+      yStyles.forEach((style, id) => hydratedStyles.push({ id, style }));
+      if (hydratedStyles.length) state.skeleton = applyStylesToSkeleton(state.skeleton, hydratedStyles);
+      document.getElementById('fname').textContent = state.filename;
+  } else if (state.canSeedCollab) {
     // First user — push local state into doc
     yDoc.transact(() => {
-      yMeta.set('skeleton', state.skeleton);
+      yMeta.set('skeleton', compactSkeleton(state.skeleton));
       yMeta.set('filename', state.filename);
       state.blocks.forEach(b => {
         const blockMap = new Y.Map();
@@ -125,13 +182,26 @@ export async function connectCollab(state, handlers) {
         blockMap.set('text', ytext);
         yBlocks.set(b.id, blockMap);
       });
+      Object.entries(state.comments || {}).forEach(([id, comment]) => {
+        yComments.set(id, comment);
+      });
     });
+  } else {
+    provider.destroy();
+    yDoc.destroy();
+    throw new Error('room has no collaborative document');
   }
 
   // Hydrate comments from doc (for late joiners)
   yComments.forEach((c, id) => {
     state.comments[id] = c;
   });
+  if (handlers.validateState && !handlers.validateState()) {
+    provider.destroy();
+    yDoc.destroy();
+    throw new Error('collaborative document exceeds capacity');
+  }
+  if (docHasMeta) handlers.onSkeletonChanged?.();
   handlers.onCommentsChange?.();
 
   // ── Observe text changes deep inside blocks ──
@@ -148,14 +218,23 @@ export async function connectCollab(state, handlers) {
   // Cost: O(n) blocks per remote transaction. Fine for v0.1 sizes.
   let lastSeenTexts = new Map();
   function snapshotAndDiff() {
+    const changes = [];
     yBlocks.forEach((blockMap, id) => {
       const ytext = blockMap.get('text');
       if (!ytext) return;
       const next = ytext.toString();
       if (lastSeenTexts.get(id) !== next) {
-        lastSeenTexts.set(id, next);
-        handlers.onBlockTextChange?.(id, next);
+        changes.push({ id, text: next });
       }
+    });
+    if (changes.length && handlers.validateRemoteTextChanges &&
+        !handlers.validateRemoteTextChanges(changes)) {
+      rejectRemoteState();
+      return;
+    }
+    changes.forEach(({ id, text }) => {
+      lastSeenTexts.set(id, text);
+      handlers.onBlockTextChange?.(id, text);
     });
     // Drop entries for removed blocks so stale strings don't accumulate.
     for (const id of Array.from(lastSeenTexts.keys())) {
@@ -182,6 +261,12 @@ export async function connectCollab(state, handlers) {
   // instability.
   yMeta.observe((event, tx) => {
     if (tx.origin === LOCAL_ORIGIN || tx.origin === STYLE_ORIGIN) return;
+    if (event.keysChanged.has('filename')) {
+      state.filename = yMeta.get('filename') || state.filename;
+      const filenameEl = document.getElementById('fname');
+      if (filenameEl) filenameEl.textContent = state.filename;
+      handlers.onFilenameChanged?.(state.filename);
+    }
     if (!event.keysChanged.has('skeleton')) return;
     const nextSkeleton = yMeta.get('skeleton');
     // Never blank the document. If an undo deleted the skeleton key (this
@@ -190,15 +275,25 @@ export async function connectCollab(state, handlers) {
     // is on screen and bail — "no more to undo" must leave the page put, not
     // render a literal "undefined" body.
     if (nextSkeleton == null || nextSkeleton === '') return;
-    state.skeleton = nextSkeleton;
-    state.blocks = [];
+    let candidateSkeleton = nextSkeleton;
+    const currentStyles = [];
+    yStyles.forEach((style, id) => currentStyles.push({ id, style }));
+    if (currentStyles.length) candidateSkeleton = applyStylesToSkeleton(candidateSkeleton, currentStyles);
+    const candidateBlocks = [];
     yBlocks.forEach((blockMap, id) => {
-      state.blocks.push({
+      candidateBlocks.push({
         id,
         tag: blockMap.get('tag'),
         text: blockMap.get('text').toString(),
       });
     });
+    if (handlers.validateRemoteStructure &&
+        !handlers.validateRemoteStructure(candidateSkeleton, candidateBlocks)) {
+      rejectRemoteState();
+      return;
+    }
+    state.skeleton = candidateSkeleton;
+    state.blocks = candidateBlocks;
     // Re-prime the diff baseline so the soon-to-fire yBlocks observer
     // doesn't generate spurious per-block updates against a moving
     // target. Anything still out of sync would be repaired by the full
@@ -220,6 +315,12 @@ export async function connectCollab(state, handlers) {
   // ── Observe comments ─────────────────────────
   yComments.observe((event, tx) => {
     if (tx.origin === LOCAL_ORIGIN) return;
+    const candidateComments = {};
+    yComments.forEach((comment, id) => { candidateComments[id] = comment; });
+    if (handlers.validateRemoteComments && !handlers.validateRemoteComments(candidateComments)) {
+      rejectRemoteState();
+      return;
+    }
     event.changes.keys.forEach((change, key) => {
       if (change.action === 'add' || change.action === 'update') {
         state.comments[key] = yComments.get(key);
@@ -230,10 +331,26 @@ export async function connectCollab(state, handlers) {
     handlers.onCommentsChange?.();
   });
 
+  yStyles.observe((event, tx) => {
+    if (tx.origin === STYLE_ORIGIN) return;
+    const styles = [];
+    event.changes.keys.forEach((change, id) => {
+      // A structural transaction embeds current styles in the skeleton and
+      // clears patch entries. Ignore those deletions so we do not erase styles
+      // from the freshly-applied skeleton on remote clients. Explicit clearing
+      // is represented by an empty string value instead.
+      if (change.action !== 'delete') styles.push({ id, style: yStyles.get(id) || '' });
+    });
+    if (styles.length && handlers.onStylesChange?.(styles) === false) rejectRemoteState();
+  });
+
   emitUsers();
 
   // ── Local-edit handlers (called by room.js) ─
   return {
+    // A freshly-seeded room has not yet acknowledged durable persistence. The
+    // caller keeps its IndexedDB draft until a later visit adopts server state.
+    seeded: !docHasMeta,
     onLocalBlockEdit(id, text) {
       const blockMap = yBlocks.get(id);
       if (!blockMap) return;
@@ -268,27 +385,45 @@ export async function connectCollab(state, handlers) {
     // Persist a skeleton whose ONLY change is inline styling (colour, size,
     // bold…). Uses STYLE_ORIGIN so it survives refresh + reaches collaborators,
     // without a local re-render or a duplicate Yjs undo step.
-    persistSkeleton(skeleton) {
-      yDoc.transact(() => { yMeta.set('skeleton', skeleton); }, STYLE_ORIGIN);
+    persistStyles(styles) {
+      yDoc.transact(() => {
+        styles.forEach(({ id, style }) => {
+          yStyles.set(id, style || '');
+        });
+      }, STYLE_ORIGIN);
+    },
+    persistMetaSkeleton(skeleton) {
+      yDoc.transact(() => { yMeta.set('skeleton', compactSkeleton(skeleton)); }, STYLE_ORIGIN);
+    },
+    persistTrackedSkeleton(skeleton, blocks) {
+      // Attribute-only changes such as links belong in the chronological Yjs
+      // history. Reuse the structural path so one undo restores href + text.
+      this.stopCapturing();
+      this.onLocalStructureChange(skeleton, blocks);
+      this.stopCapturing();
     },
     onLocalStructureChange(skeleton, blocks) {
+      const sharedSkeleton = compactSkeleton(skeleton);
       // Guarantee the skeleton key already exists from an UNtagged write. If
       // it were first created inside the tracked transaction below, undoing
       // that transaction would *delete* the key (its inverse), blanking the
       // doc to "undefined". Seeding it untagged first makes the tracked set
       // an UPDATE, so undo restores the prior value instead of removing it.
       if (!yMeta.has('skeleton')) {
-        yDoc.transact(() => { yMeta.set('skeleton', skeleton); });
+        yDoc.transact(() => { yMeta.set('skeleton', sharedSkeleton); });
       }
       // Wholesale replace skeleton + blocks. Coarse but correct for v0.1.
       yDoc.transact(() => { /* tagged local origin below */
-        yMeta.set('skeleton', skeleton);
+        yMeta.set('skeleton', sharedSkeleton);
         const keepIds = new Set(blocks.map(b => b.id));
         Array.from(yBlocks.keys()).forEach(id => {
           if (!keepIds.has(id)) {
             yBlocks.delete(id);
             lastSeenTexts.delete(id);
           }
+        });
+        Array.from(yStyles.keys()).forEach(id => {
+          yStyles.delete(id);
         });
         blocks.forEach(b => {
           if (!yBlocks.has(b.id)) {
@@ -323,6 +458,9 @@ export async function connectCollab(state, handlers) {
     updateUser(user) {
       provider.awareness.setLocalStateField('user', user);
     },
+    updateFilename(filename) {
+      yDoc.transact(() => { yMeta.set('filename', filename); }, LOCAL_ORIGIN);
+    },
     undo() { undoMgr.undo(); },
     redo() { undoMgr.redo(); },
     canUndo() { return undoMgr.canUndo(); },
@@ -349,6 +487,7 @@ export async function connectCollab(state, handlers) {
       undoMgr.on('stack-item-popped', cb);
       undoMgr.on('stack-cleared', cb);
     },
+    isConnected() { return !!provider.wsconnected; },
     disconnect() {
       provider.destroy();
     },

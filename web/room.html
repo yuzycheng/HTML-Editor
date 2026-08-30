@@ -156,6 +156,24 @@
     box-shadow: var(--shadow-card);
   }
 
+  /* Fast tooltip for icon-heavy editor chrome. Native title bubbles take a
+     noticeable pause; this appears after a short intentional hover instead. */
+  #hce-fast-tooltip {
+    position: fixed;
+    z-index: 10020;
+    display: none;
+    max-width: 280px;
+    padding: 6px 9px;
+    color: #fff;
+    background: #1a1a1a;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
+    font: 500 11px/1.35 var(--font-sans);
+    text-align: center;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
   /* ── Main ───────────────────────────────────── */
   .main {
     flex: 1;
@@ -769,7 +787,7 @@
   <div class="canvas mode-edit" id="canvas">
     <!-- allow-popups(-to-escape-sandbox): lets a link-bound block open its URL in
          a new tab (window.open) from View mode; without it the sandbox blocks it. -->
-    <iframe id="iframe" sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox"></iframe>
+    <iframe id="iframe" sandbox="allow-scripts allow-same-origin allow-modals allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>
     <!-- Shown until the document iframe is ready. Visible by default so it
          appears instantly (even before room.js parses a large upload); room.js
          fades it out on the iframe 'ready' message. -->

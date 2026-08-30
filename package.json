@@ -3,13 +3,16 @@
   "version": "0.1.0",
   "description": "Collaborative editor for AI-generated HTML — edit, comment, export back to AI.",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "partykit dev",
     "deploy": "partykit deploy",
-    "preview:web": "npx serve web -p 3000"
+    "preview:web": "npx serve web -p 3000",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@cloudflare/workerd-darwin-arm64": "^1.20260527.1",
+    "lib0": "^0.2.117",
     "partysocket": "^1.0.0",
     "y-partykit": "^0.0.30",
     "yjs": "^13.6.0"

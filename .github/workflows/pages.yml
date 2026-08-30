@@ -40,6 +40,8 @@ jobs:
           # changes only when new code ships (fresh fetch once). Falls back to
           # a harmless literal if the marker is ever absent.
           sed -i "s/__HCE_BUILD__/${GITHUB_SHA:0:12}/g" _site/room.html
+          sed -i "s/__HCE_BUILD__/${GITHUB_SHA:0:12}/g" _site/index.html
+          sed -i "s/__HCE_BUILD__/${GITHUB_SHA:0:12}/g" _site/guide.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

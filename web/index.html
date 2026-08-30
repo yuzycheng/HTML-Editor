@@ -77,6 +77,25 @@
   .lang-toggle:hover { color: var(--ink); }
   .lang-toggle .globe { width: 17px; height: 17px; display: block; }
   .lang-toggle .lang-label { font-weight: 500; }
+  .guide-link {
+    display: inline-flex;
+    align-items: center;
+    height: 30px;
+    padding: 0 11px;
+    color: var(--ink-soft);
+    background: rgba(255, 255, 255, 0.72);
+    border: var(--rule-w) solid var(--rule);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    text-decoration: none;
+    transition: color 100ms, border-color 100ms, background 100ms;
+  }
+  .guide-link:hover {
+    color: var(--signal-ink);
+    border-color: #ffc4aa;
+    background: var(--signal-soft);
+  }
   .beta-pill {
     display: inline-block;
     font-size: 10px;
@@ -439,6 +458,7 @@
 <div class="topbar">
   <div class="brand"><img class="brand-mark" src="./assets/logo-mark.svg" alt="">HTML Editor<span class="beta-pill">BETA</span></div>
   <div class="right">
+    <a class="guide-link" href="./guide.html" data-i18n="guide">Guide</a>
     <button class="lang-toggle" id="lang-toggle" type="button" title="切换语言 / Switch language" aria-label="Switch language">
       <svg class="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="9"/>
@@ -561,9 +581,10 @@
     ex_t:       { en: 'Export', zh: '导出' },
     ex_d:       { en: 'Download HTML or package it for AI.', zh: '下载 HTML<br>或打包给 AI 优化。' },
     drop_big:   { en: 'Drop an HTML file or a whole folder here', zh: '把 HTML 文件或整个文件夹拖到这里' },
-    drop_small: { en: 'Or click to choose — an HTML file, or a folder with images/videos', zh: '或点此选择 · HTML 文件，或含图片 / 视频的文件夹' },
+    drop_small: { en: 'HTML up to 10 MB · inline media up to 5 MB', zh: 'HTML 最大 10 MB · 内联媒体累计最大 5 MB' },
     pick_file:  { en: 'HTML file', zh: 'HTML 文件' },
     pick_folder:{ en: 'Folder (with images/videos)', zh: '文件夹（含图片 / 视频）' },
+    guide:      { en: 'Guide', zh: '使用指南' },
     start:      { en: 'Start →', zh: '开始 →' },
     recent_h:   { en: 'Recent files', zh: '最近文件' },
     clear:      { en: 'Clear all', zh: '全部清除' },
@@ -595,7 +616,23 @@
 })();
 </script>
 
-<script>
+<script type="module">
+  const uploadBuild = /^(?:localhost|127\.0\.0\.1)$/.test(location.hostname)
+    ? String(Date.now()) : '__HCE_BUILD__';
+  const [capacity, draftStore] = await Promise.all([
+    import('./src/capacity.js?v=' + uploadBuild),
+    import('./src/draft-store.js?v=' + uploadBuild),
+  ]);
+  const {
+    MAX_SOURCE_HTML_BYTES, LARGE_SOURCE_WARNING_BYTES, MAX_DOCUMENT_BYTES,
+    MAX_INLINE_MEDIA_BYTES, MAX_INLINE_IMAGE_BYTES, ELEMENT_WARNING_COUNT,
+    inspectDocumentCapacity, inspectAndValidateSource, estimatedDataUrlBytes,
+    utf8ByteLength,
+  } = capacity;
+  const { saveDraft } = draftStore;
+  const { bundleFolderAssets } = await import('./src/asset-bundler.js?v=' + uploadBuild);
+  const { readTextFile } = await import('./src/encoding.js?v=' + uploadBuild);
+
   const startBtn = document.getElementById('start-btn');
   const drop = document.getElementById('drop-zone');
   const input = document.getElementById('file-input');
@@ -606,6 +643,8 @@
   // file vs a folder (collectDropFiles walks dropped directories).
   const folderInput = document.getElementById('folder-input');
   const uploadMenu = document.getElementById('upload-menu');
+  const MAX_PROJECT_FILES = 5000;
+  const MAX_PROJECT_RAW_BYTES = 512 * 1024 * 1024;
 
   function openUploadMenu() {
     uploadMenu.style.display = 'flex';
@@ -699,8 +738,21 @@
       || ((navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en')) === 'zh' ? 'zh' : 'en';
     const M = {
       need_html:  { en: 'Please include an .html or .htm file.', zh: '请包含一个 .html 或 .htm 文件。' },
-      too_big:    { en: 'HTML file too large. Max 5 MB.', zh: 'HTML 文件过大，最大 5 MB。' },
+      too_big:    { en: 'HTML file too large. Max 10 MB.', zh: 'HTML 文件过大，最大 10 MB。' },
+      final_too_big: { en: 'The document is over 12 MB after processing. Remove embedded media or use remote URLs.', zh: '处理后的协作文档超过 12 MB，请移除内联媒体或改用网络链接。' },
+      media_too_big: { en: 'Embedded media exceeds the 5 MB total. Extra assets were left as placeholders.', zh: '内联媒体累计超过 5 MB，超出的资源已保留为占位。' },
+      image_too_big: { en: 'An embedded image is over the 2 MB per-image limit.', zh: '有内联图片超过单张 2 MB 上限。' },
+      too_many_elements: { en: 'This document has too many elements to edit reliably (max 50,000).', zh: '文档元素过多，无法可靠编辑（上限 50,000 个）。' },
+      large_warn: { en: 'This is a large HTML file and may open more slowly on mobile devices. Continue?', zh: '这是一个较大的 HTML 文件，在移动设备上打开可能较慢。仍要继续吗？' },
+      assets_skipped: { en: ' large asset(s) were left as placeholders to keep the document within its collaboration limit.', zh: ' 个较大的资源已保留为占位，以确保文档可稳定协作。' },
+      assets_compressed: { en: ' image(s) were compressed automatically.', zh: ' 张图片已自动压缩。' },
+      assets_animated: { en: ' animated image(s) were not embedded; their file references were kept to preserve animation. Use hosted URLs when sharing a standalone HTML file.', zh: ' 张动图未嵌入，已保留原文件引用以避免丢失动画；分享单个 HTML 文件时建议改用网络图片链接。' },
+      embedded_animation_too_big: { en: 'An embedded animated image is too large. It was not converted to a still image; use a hosted image URL or a smaller animation.', zh: '内嵌动图过大。为避免变成静态图，系统未进行转码；请改用网络图片链接或更小的动图。' },
+      assets_capacity: { en: ' asset(s) did not fit the inline-media capacity and remain as file references.', zh: ' 个资源超出内联媒体容量，已保留文件引用。' },
+      assets_missing: { en: ' referenced asset(s) could not be found or resolved.', zh: ' 个引用资源未找到或无法解析。' },
+      asset_processing_failed: { en: 'Could not process this file safely. No changes were imported; please try again.', zh: '无法安全处理此文件，本次未导入任何更改，请重试。' },
       open_fail:  { en: 'Could not open the file:', zh: '无法打开文件：' },
+      storage_fail: { en: 'This browser could not prepare local storage for a large file. Check private-browsing/storage settings and try again.', zh: '浏览器无法为大文件准备本地存储，请检查无痕模式或存储权限后重试。' },
     };
     return (M[key] && M[key][lang]) || (M[key] && M[key].en) || key;
   }
@@ -788,18 +840,32 @@
     doc.querySelectorAll('img[src], video[src], audio[src], video source[src], audio source[src]')
       .forEach(el => targets.push({ el, attr: 'src' }));
     doc.querySelectorAll('video[poster]').forEach(el => targets.push({ el, attr: 'poster' }));
-    let budget = 4.3 * 1024 * 1024;   // keep the final string within sessionStorage quota
+    const initialStats = inspectDocumentCapacity(htmlText);
+    let mediaBudget = Math.max(0, MAX_INLINE_MEDIA_BYTES - initialStats.inlineMediaBytes);
+    let documentBudget = Math.max(0, MAX_DOCUMENT_BYTES - initialStats.totalBytes);
     let inlined = 0; const skipped = [];
     for (const t of targets) {
       const s = t.el.getAttribute(t.attr) || '';
       if (/^(https?:|data:|blob:)/i.test(s)) continue;   // already resolvable
       const f = findAsset(s);
       if (!f) continue;                                  // not provided → stays a placeholder
-      if (f.size > budget) { skipped.push(baseNameOf(relPathOf(f))); continue; }
+      const estimate = estimatedDataUrlBytes(f);
+      if ((f.type || '').startsWith('image/') && estimate > MAX_INLINE_IMAGE_BYTES) {
+        skipped.push(baseNameOf(relPathOf(f)));
+        continue;
+      }
+      if (estimate > mediaBudget || estimate > documentBudget) { skipped.push(baseNameOf(relPathOf(f))); continue; }
       try {
         const url = await readDataURL(f);
+        const urlBytes = utf8ByteLength(url);
+        if (urlBytes > mediaBudget || urlBytes > documentBudget ||
+            ((f.type || '').startsWith('image/') && urlBytes > MAX_INLINE_IMAGE_BYTES)) {
+          skipped.push(baseNameOf(relPathOf(f)));
+          continue;
+        }
         t.el.setAttribute(t.attr, url);
-        budget -= url.length;
+        mediaBudget -= urlBytes;
+        documentBudget -= urlBytes;
         inlined++;
       } catch (_) { skipped.push(baseNameOf(relPathOf(f))); }
     }
@@ -849,35 +915,85 @@
     if (submitting) return;
     const files = Array.from(fileList || []);
     if (!files.length) return;
+    const projectBytes = files.reduce((sum, file) => sum + Math.max(0, Number(file.size) || 0), 0);
+    if (files.length > MAX_PROJECT_FILES || projectBytes > MAX_PROJECT_RAW_BYTES) {
+      alert(document.documentElement.lang.toLowerCase().startsWith('zh')
+        ? '文件夹过大（最多 5,000 个文件、原始文件总计约 537 MB）'
+        : 'Folder too large (max 5,000 files and about 537 MB total source data)');
+      return;
+    }
     const htmlFiles = files.filter(f => HTML_RE.test(f.name));
     if (!htmlFiles.length) { alert(msg('need_html')); return; }
     const htmlFile = await pickMainHtml(htmlFiles);
     if (!htmlFile) { alert(msg('need_html')); return; }
-    if (htmlFile.size > 5 * 1024 * 1024) { alert(msg('too_big')); return; }
+    if (htmlFile.size > MAX_SOURCE_HTML_BYTES) { alert(msg('too_big')); return; }
+    if (htmlFile.size > LARGE_SOURCE_WARNING_BYTES && !confirm(msg('large_warn'))) return;
     // Commit SYNCHRONOUSLY, before any await, so a second concurrent call
     // (double-fire / event bubbling) bails at the guard above instead of racing
     // through the awaits and opening a second room.
     submitting = true;
     const assets = files.filter(f => f !== htmlFile && !/\.html?$/i.test(f.name));
     let text;
-    try { text = await htmlFile.text(); }
+    try { text = (await readTextFile(htmlFile, 'html')).text; }
     catch (err) { submitting = false; alert(msg('open_fail') + ' ' + err.message); return; }
     let result;
-    try { result = await inlineAssets(text, assets); }
-    catch (_) { result = { html: text, inlined: 0, skipped: [] }; }
+    try {
+      result = await bundleFolderAssets({
+        html: text, mainFile: htmlFile, files,
+        maxInlineBytes: MAX_INLINE_MEDIA_BYTES, maxImageBytes: MAX_INLINE_IMAGE_BYTES,
+        maxDocumentBytes: MAX_DOCUMENT_BYTES,
+      });
+    }
+    catch (error) {
+      submitting = false;
+      console.error('[hce] asset processing failed:', error);
+      alert(msg('asset_processing_failed'));
+      return;
+    }
+    const capacity = inspectAndValidateSource(result.html);
+    if (capacity.issue) {
+      submitting = false;
+      if ((result.warnings || []).some(warning => warning.code === 'animated-image-too-large')) alert(msg('embedded_animation_too_big'));
+      else if (capacity.issue === 'document') alert(msg('final_too_big'));
+      else if (capacity.issue === 'media') alert(msg('media_too_big'));
+      else if (capacity.issue === 'image') alert(msg('image_too_big'));
+      else alert(msg('too_many_elements'));
+      return;
+    }
+    if (capacity.elementCount > ELEMENT_WARNING_COUNT) {
+      console.warn('[hce] large DOM:', capacity.elementCount, 'elements');
+    }
     const roomId = generateRoomId();
     try {
-      sessionStorage.setItem('hce-init-html-' + roomId, result.html);
-      sessionStorage.setItem('hce-init-name-' + roomId, htmlFile.name);
+      await saveDraft({ roomId, html: result.html, filename: htmlFile.name, kind: 'handoff' });
     } catch (err) {
       submitting = false;
-      alert(msg('open_fail') + ' ' + err.message);
+      alert((err && (err.code === 'STORAGE_UNAVAILABLE' || err.code === 'QUOTA_EXCEEDED'))
+        ? msg('storage_fail')
+        : msg('open_fail') + ' ' + err.message);
       return;
     }
     rememberRoom({ roomId, filename: htmlFile.name });
-    if (result.skipped && result.skipped.length) {
-      // Non-blocking: these can still be added inside the editor.
-      console.warn('[hce] assets too large to inline, add them in the editor:', result.skipped.join(', '));
+    const compressedCount = (result.compressed || []).length + Number(result.compressedEmbedded || 0);
+    const warnings = result.warnings || [];
+    const animatedCount = warnings.filter(warning => warning.code === 'animated-image-too-large').length;
+    const capacityCount = warnings.filter(warning =>
+      warning.code === 'inline-budget' || warning.code === 'image-too-large' || warning.code === 'embedded-image-too-large'
+    ).length;
+    const missingCount = warnings.filter(warning =>
+      warning.code === 'missing' || warning.code === 'missing-import' || warning.code === 'missing-stylesheet' ||
+      warning.code === 'ambiguous' || warning.code === 'invalid-path'
+    ).length;
+    const messages = [];
+    if (compressedCount) messages.push(compressedCount + msg('assets_compressed'));
+    if (animatedCount) messages.push(animatedCount + msg('assets_animated'));
+    if (capacityCount) messages.push(capacityCount + msg('assets_capacity'));
+    if (missingCount) messages.push(missingCount + msg('assets_missing'));
+    const otherCount = Math.max(0, warnings.length - animatedCount - capacityCount - missingCount);
+    if (otherCount) messages.push(otherCount + msg('assets_skipped'));
+    if (messages.length) {
+      alert(messages.join('\n'));
+      if (result.skipped?.length) console.warn('[hce] assets not inlined:', result.skipped.join(', '));
     }
     location.href = './room.html?room=' + roomId;
   }

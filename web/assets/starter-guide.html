@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>新手上手说明书</title>
+  <style>
+    :root {
+      --ink: #1f2937;
+      --muted: #4b5563;
+      --line: #e5e7eb;
+      --soft: #f8fafc;
+      --accent: #ff5a1f;
+      --accent-soft: #fff2ec;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: #ffffff;
+      line-height: 1.7;
+    }
+    .wrap {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 34px 24px 80px;
+    }
+    .hero {
+      border: 1px solid #fed7c3;
+      background: linear-gradient(135deg, #fffaf7, #ffffff);
+      border-radius: 16px;
+      padding: 20px 22px;
+      margin-bottom: 18px;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 3px 10px;
+      border-radius: 999px;
+      color: #9a3412;
+      background: #ffedd5;
+      margin-bottom: 8px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+    .lead {
+      margin: 10px 0 0;
+      color: var(--muted);
+    }
+    .toc {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin: 14px 0 20px;
+    }
+    .toc strong {
+      font-size: 14px;
+    }
+    .toc ul {
+      margin: 8px 0 0 18px;
+    }
+    h2 {
+      margin: 28px 0 8px;
+      font-size: 24px;
+      letter-spacing: -0.01em;
+    }
+    h3 {
+      margin: 18px 0 6px;
+      font-size: 18px;
+    }
+    p {
+      margin: 8px 0;
+    }
+    .callout {
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: #fff;
+      margin: 12px 0;
+    }
+    .callout .expect {
+      margin-top: 8px;
+      color: #475569;
+      font-size: 14px;
+    }
+    .try {
+      display: inline-block;
+      font-size: 12px;
+      color: #9a3412;
+      background: #ffedd5;
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-weight: 600;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .tip {
+      border: 1px solid #fde68a;
+      background: #fffbeb;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin: 12px 0;
+      color: #92400e;
+      font-size: 14px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 12px;
+      padding: 14px;
+      margin: 10px 0;
+    }
+    .icons {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(260px, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .icon-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 11px;
+      background: #fff;
+    }
+    .icon-box {
+      width: 30px;
+      height: 30px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #111827;
+      flex-shrink: 0;
+      background: #fff;
+    }
+    .icon-box svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .icon-item p {
+      margin: 0;
+      font-size: 14px;
+      color: #334155;
+      line-height: 1.6;
+    }
+    .icon-item strong {
+      color: #0f172a;
+    }
+    .tool-icons {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
+      gap: 10px;
+      margin: 10px 0 12px;
+    }
+    .tool-icon {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      padding: 8px 10px;
+      font-size: 14px;
+      color: #334155;
+    }
+    .tool-icon svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: #111827;
+      flex-shrink: 0;
+    }
+    .demo-box {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      padding: 12px;
+      margin: 10px 0;
+    }
+    .demo-logo {
+      margin-top: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 12px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #fff7ed, #ffffff);
+    }
+    .demo-logo svg {
+      width: 146px;
+      height: 99px;
+      display: block;
+    }
+    .link-card {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid #d6d3d1;
+      border-radius: 10px;
+      background: #f8fafc;
+      padding: 10px 12px;
+    }
+    .link-badge {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      background: #ffedd5;
+      color: #9a3412;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .link-meta {
+      min-width: 0;
+    }
+    .link-meta strong {
+      display: block;
+      font-size: 14px;
+      color: #0f172a;
+      line-height: 1.3;
+    }
+    .link-meta span {
+      display: block;
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 2px;
+      word-break: break-all;
+    }
+    .style-chip {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 13px;
+      margin: 2px 6px 2px 0;
+      border: 1px solid #d6d3d1;
+      background: #fff;
+    }
+    ul, ol {
+      margin: 8px 0 10px 22px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      background: #fff;
+      table-layout: fixed;
+    }
+    th, td {
+      border: 1px solid #d6d3d1;
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f5f5f4;
+    }
+    .footer {
+      margin-top: 36px;
+      color: #6b7280;
+      font-size: 13px;
+      text-align: center;
+    }
+    @media (max-width: 780px) {
+      .icons {
+        grid-template-columns: 1fr;
+      }
+      .tool-icons {
+        grid-template-columns: 1fr;
+      }
+      h1 {
+        font-size: 30px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="tag">Beginner DOCUMENT</div>
+      <h1>HTML Editor 使用说明书</h1>
+      <p class="lead">这是一份可以直接阅读、也可以随时动手试一试的说明书，文中每一节都提供了自然的可选操作点，帮助你逐步理解全部核心功能。</p>
+    </div>
+
+    <div class="toc">
+      <strong>本页内容</strong>
+      <ul>
+        <li>模式与图标说明</li>
+        <li>文本编辑、结构调整、表格处理</li>
+        <li>样式、批注、协作与导出</li>
+      </ul>
+    </div>
+
+    <h2>1. 四大模式</h2>
+    <p>顶部模式区通常有四个核心图标：</p>
+
+    <div class="icons">
+      <div class="icon-item">
+        <div class="icon-box" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </div>
+        <p><strong>阅读模式</strong><br>仅查看文档，不会触发编辑操作，适合预览。</p>
+      </div>
+      <div class="icon-item">
+        <div class="icon-box" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path></svg>
+        </div>
+        <p><strong>编辑模式</strong><br>用于改文字、改样式、插入内容。这个模式下你会看到编辑相关工具。</p>
+      </div>
+      <div class="icon-item">
+        <div class="icon-box" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"></polyline><polyline points="9 5 12 2 15 5"></polyline><polyline points="15 19 12 22 9 19"></polyline><polyline points="19 9 22 12 19 15"></polyline><line x1="2" y1="12" x2="22" y2="12"></line><line x1="12" y1="2" x2="12" y2="22"></line></svg>
+        </div>
+        <p><strong>拖拽模式</strong><br>用于重排结构（模块、表格、行列）。该模式不用于文字输入。</p>
+      </div>
+      <div class="icon-item">
+        <div class="icon-box" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path></svg>
+        </div>
+        <p><strong>批注</strong><br>用于评审沟通，让 AI 知道具体的修改位置和意见。你可以勾选具体元素，也可以写通用建议。</p>
+      </div>
+    </div>
+
+    <h2>2. 文本与结构</h2>
+    <p>在“编辑”模式下，你可以直接点击文本并修改。文本改动会自动保存，通常右下角会短暂显示“Saving（保存中…）”，随后变为“Saved（已保存）”。</p>
+    <p>当你选中一个元素块时，会看到浮动工具条（例如插入、复制、绑定链接、样式、删除）。</p>
+
+    <div class="callout">
+      <strong>示例 <span class="try">可以尝试看看</span></strong>
+      <p>你可以点击这张卡片，试着改一句文字或调整颜色。</p>
+    </div>
+
+    <h2>3. 表格说明</h2>
+    <p>表格在这个编辑器中分为两类操作：
+    <strong>编辑模式</strong>下处理增删行列，
+    <strong>拖拽模式</strong>下处理行列重排。</p>
+
+    <p>下方是示例表格，你可以尝试进行删减或拖拽。</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>列 A</th>
+          <th>列 B</th>
+          <th>列 C</th>
+          <th>列 D</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>A1</td>
+          <td>B1</td>
+          <td>C1</td>
+          <td>D1</td>
+        </tr>
+        <tr>
+          <td>A2</td>
+          <td>B2</td>
+          <td>C2</td>
+          <td>D2</td>
+        </tr>
+        <tr>
+          <td>A3</td>
+          <td>B3</td>
+          <td>C3</td>
+          <td>D3</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>4. 插入、链接与样式</h2>
+    <p>编辑模式选中元素后，常见工具包括：</p>
+    <div class="tool-icons">
+      <div class="tool-icon">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        <span><strong>+</strong> 插入内容</span>
+      </div>
+      <div class="tool-icon">
+        <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"></path><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"></path></svg>
+        <span><strong>链条</strong> 链接相关设置</span>
+      </div>
+      <div class="tool-icon">
+        <svg viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.6 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1 0-.8.6-1.4 1.4-1.4H16c3.3 0 6-2.7 6-6 0-5.5-4.5-10-10-10z"></path></svg>
+        <span><strong>调色盘</strong> 样式面板</span>
+      </div>
+    </div>
+
+    <div class="demo-box">
+      <strong>图片插入示例</strong>
+      <p>点击 + 选择“图片 / 视频”后，可以先插入一张图片。这里示例放的是 HTML Editor logo：</p>
+      <div class="demo-logo" aria-label="HTML Editor logo example">
+        <svg width="146" height="99" viewBox="0 0 146 99" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="HTML Editor logo">
+          <path d="M0.625 20.0366C0.625 19.4878 1.06729 19.0415 1.61606 19.0366L115.195 18.0217C116.088 18.0137 116.543 19.0916 115.914 19.7258L72.6506 63.3543C72.5699 63.4357 72.5038 63.5303 72.4552 63.6341L61.7749 86.4243C61.6102 86.7756 61.2573 87 60.8694 87H1.625C1.07272 87 0.625 86.5523 0.625 86V20.0366Z" fill="#E7E8EA"></path>
+          <path d="M76.7869 68.8496C77.0658 68.1836 77.9371 68.0237 78.4343 68.5472L91.338 82.132C91.8844 82.7073 91.5753 83.6594 90.7951 83.8039L80.5421 85.7034L70.3485 88.3855C69.547 88.5964 68.8515 87.7966 69.1717 87.0321L76.7869 68.8496Z" fill="#E7E8EA"></path>
+          <path d="M71.5644 81.3909C71.806 80.8195 72.5043 80.6037 73.0262 80.9392L78.617 84.5333C79.3511 85.0052 79.1708 86.1253 78.3256 86.3429L70.3465 88.3971C69.5447 88.6035 68.8537 87.8018 69.1761 87.0392L71.5644 81.3909Z" fill="#FF5A1F"></path>
+          <rect x="131.832" y="13.6417" width="18.7511" height="11.0703" rx="4" transform="rotate(43.8526 131.832 13.6417)" fill="#FF5A1F"></rect>
+          <rect x="123.897" y="19.8371" width="21.292" height="5.8997" rx="2" transform="rotate(43.8526 123.897 19.8371)" fill="#E7E8EA"></rect>
+          <path d="M0 1C0 0.447715 0.447715 0 1 0H124C124.552 0 125 0.447715 125 1V7.64989C125 7.87655 124.923 8.09649 124.782 8.27365L115.724 19.6238C115.534 19.8615 115.246 20 114.942 20H1C0.447717 20 0 19.5523 0 19V1Z" fill="#313230"></path>
+          <rect y="84" width="63" height="5" rx="1" fill="#313230"></rect>
+          <rect x="119.777" y="24.0613" width="21.292" height="62.9866" rx="1" transform="rotate(43.8526 119.777 24.0613)" fill="#313230"></rect>
+          <path d="M97.3082 89C96.4328 89 95.9799 87.9547 96.5787 87.3161L123.27 58.8448C123.89 58.1835 125 58.6222 125 59.5288V88C125 88.5523 124.552 89 124 89H97.3082Z" fill="#313230"></path>
+          <path d="M100.152 83.5L123.271 58.8445C123.891 58.1832 125 58.622 125 59.5285V83.5H100.152Z" fill="#E7E8EA"></path>
+          <circle cx="11.5" cy="10.5" r="4.5" fill="#FF5A1F"></circle>
+          <circle cx="24.5" cy="10.5" r="4.5" fill="#E7E8EA"></circle>
+          <circle cx="37.5" cy="10.5" r="4.5" fill="#E7E8EA"></circle>
+        </svg>
+      </div>
+    </div>
+
+    <div class="demo-box">
+      <strong>链接示例（绑定视觉组件）</strong>
+      <p>这里演示的是“整块组件绑定链接”，而不是纯文本链接。选中这张卡片后点击链条图标即可绑定跳转：</p>
+      <a href="#" onclick="return false;" style="text-decoration:none;color:inherit;display:block;">
+        <div class="link-card">
+          <div class="link-badge">HE</div>
+          <div class="link-meta">
+            <strong>HTML Editor 官方指南组件</strong>
+            <span>https://example.com/editor-guide</span>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="demo-box">
+      <strong>样式示例（颜色 / 字号）</strong>
+      <p>调色盘可直接调整颜色和字号：</p>
+      <span class="style-chip" style="color:#b34100;background:#fff7ed;border-color:#fdba74;">标题强调</span>
+      <span class="style-chip" style="font-size:16px;font-weight:700;">字号 16</span>
+      <span class="style-chip" style="background:#ecfeff;color:#155e75;border-color:#67e8f9;">填充色示例</span>
+    </div>
+
+    <h2>5. 批注与协作</h2>
+    <p>在批注模式下，你可以针对元素写评审意见，也可以写不绑定元素的通用建议。分享链接后，协作者会实时看到改动与批注更新。</p>
+
+    <h2>6. 导出与交接</h2>
+    <ul>
+      <li><strong>下载 HTML</strong>：用于发布、存档、发给开发。</li>
+      <li><strong>交给 AI</strong>：导出 Markdown Prompt，进入下一轮优化。</li>
+    </ul>
+
+    <p class="footer">HTML Editor · Starter Guide Document</p>
+  </div>
+
+</body></html>

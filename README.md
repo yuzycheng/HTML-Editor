@@ -40,6 +40,10 @@
 | ↩️ | **Undo / redo** across text and structural changes |
 | 📤 | **Export to AI** — clean HTML download or Markdown prompt for Claude / GPT |
 
+Upload limits: up to **10 MB source HTML**, **12 MB processed document**,
+and **5 MB total inline media**. Large still photos are resized and compressed
+automatically; hosted URLs are recommended for animations and large audio/video.
+
 ## Why
 
 AI-generated HTML (slides, PRDs, docs, landing pages) is hard to revise:

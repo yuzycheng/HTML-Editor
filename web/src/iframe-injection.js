@@ -11,7 +11,9 @@
 //  for selection set and modal/sidebar UI.
 // ─────────────────────────────────────────────────
 
-export function buildIframeScript() {
+export function buildIframeScript(options = {}) {
+  const maxInlineBinarySourceBytes = Number(options.maxInlineBinarySourceBytes) || Math.floor(3.5 * 1024 * 1024);
+  const maxImageSourceBytes = Number(options.maxImageSourceBytes) || 64 * 1024 * 1024;
   return `
 <style id="__hce-style">
   /* Editor scroll fix — many uploaded pages (esp. slide decks) set
@@ -19,6 +21,12 @@ export function buildIframeScript() {
      bottom gets clipped with no way to scroll. Force the document scrollable
      so users can reach and edit all of it. (Editor-only; not exported.) */
   html, body { overflow: auto !important; }
+  /* Mixed-content text nodes need a temporary editable span. Neutralise only
+     box-model/layout properties on that synthetic wrapper so author rules like
+     author child-span selectors cannot shift neighbouring content. */
+  [data-text-leaf] {
+    all: unset !important; display: inline !important;
+  }
   /* Safety net for stray list items. A <li> that (via a drag, a paste, or a
      bad edit) ends up as a direct child of something that ISN'T a list still
      has display:list-item, so the browser paints a native disc marker the user
@@ -142,6 +150,23 @@ export function buildIframeScript() {
   #__hce-tools button.del:hover { background: #fee2e2; color: #991b1b; }
   #__hce-tools .sep { width: 1px; background: #e7e5e4; margin: 4px 2px; }
 
+  /* Quick, viewport-aware labels for the editor's icon controls. */
+  #__hce-fast-tooltip {
+    position: fixed;
+    z-index: 2147483647;
+    display: none;
+    max-width: 280px;
+    padding: 6px 9px;
+    color: #ffffff;
+    background: #1a1a1a;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(15,23,42,.22);
+    font: 500 11px/1.35 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    text-align: center;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
   /* ───── Notion-style table controls: row/column bars + drag grip ───── */
   #__hce-tablectl { position: fixed; z-index: 99990; top: 0; left: 0; display: none; pointer-events: none; }
   #__hce-tablectl.on { display: block; }
@@ -202,13 +227,96 @@ export function buildIframeScript() {
 </style>
 <scr` + `ipt id="__hce-script">
 (function() {
+  var MAX_INLINE_BINARY_SOURCE_BYTES = ${maxInlineBinarySourceBytes};
+  var MAX_IMAGE_SOURCE_BYTES = ${maxImageSourceBytes};
   var mode = 'edit';
   document.body.dataset.mode = mode;
 
+  // Native title bubbles are slow. This delegated tooltip handles every
+  // editor-owned icon, including controls that are created later.
+  function installFastTooltips() {
+    if (document.getElementById('__hce-fast-tooltip')) return;
+    var tip = document.createElement('div');
+    tip.id = '__hce-fast-tooltip';
+    tip.setAttribute('role', 'tooltip');
+    document.body.appendChild(tip);
+    var selector = '[title], [data-hce-tooltip]';
+    var roots = '#__hce-tools,#__hce-tablectl,#__hce-table-menu,#__hce-media-menu,#__hce-add-menu,#__hce-crop-bar,#__hce-style-panel,#__hce-hover-handle,.__hce-media-ph';
+    var active = null;
+    var timer = null;
+
+    function targetFrom(node) {
+      var el = node && node.closest ? node.closest(selector) : null;
+      return el && el.closest && el.closest(roots) ? el : null;
+    }
+    function labelFor(el) {
+      var nativeTitle = el.getAttribute('title');
+      if (nativeTitle != null) {
+        var label = nativeTitle.trim();
+        if (label) {
+          el.setAttribute('data-hce-tooltip', label);
+          el.setAttribute('aria-label', label);
+        }
+        el.removeAttribute('title');
+      }
+      return (el.getAttribute('data-hce-tooltip') || '').trim();
+    }
+    function hide() {
+      clearTimeout(timer);
+      timer = null;
+      active = null;
+      tip.style.display = 'none';
+    }
+    function show(el, label) {
+      if (active !== el || !document.contains(el)) return;
+      tip.textContent = label;
+      tip.style.display = 'block';
+      var anchor = el.getBoundingClientRect();
+      var box = tip.getBoundingClientRect();
+      var gap = 8;
+      var top = anchor.bottom + gap;
+      if (top + box.height > window.innerHeight - gap) top = anchor.top - box.height - gap;
+      var left = anchor.left + (anchor.width - box.width) / 2;
+      left = Math.max(gap, Math.min(window.innerWidth - box.width - gap, left));
+      tip.style.top = Math.max(gap, top) + 'px';
+      tip.style.left = left + 'px';
+    }
+    function schedule(el, immediate) {
+      var label = labelFor(el);
+      if (!label) return;
+      clearTimeout(timer);
+      tip.style.display = 'none';
+      active = el;
+      timer = setTimeout(function () { show(el, label); }, immediate ? 0 : 80);
+    }
+
+    document.addEventListener('pointerover', function (e) {
+      var el = targetFrom(e.target);
+      if (el && el !== active) schedule(el, false);
+    }, true);
+    document.addEventListener('pointerout', function (e) {
+      if (!active) return;
+      if (e.relatedTarget && active.contains(e.relatedTarget)) return;
+      if (targetFrom(e.target) === active) hide();
+    }, true);
+    document.addEventListener('pointerdown', hide, true);
+    document.addEventListener('focusin', function (e) {
+      var el = targetFrom(e.target);
+      if (el && el.matches && el.matches(':focus-visible')) schedule(el, true);
+    });
+    document.addEventListener('focusout', function (e) {
+      if (active && e.target === active) hide();
+    });
+    document.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
+  }
+  installFastTooltips();
+
   function applyMode(m) {
+    var previousMode = mode;
     mode = m;
     document.body.dataset.mode = m;
-    if (typeof hideTableMenu === 'function') hideTableMenu();
+    if (typeof hideTableControls === 'function') hideTableControls();
     // Only text leaves are contenteditable in edit mode
     document.querySelectorAll('[data-hce-text]').forEach(function(el) {
       if (m === 'edit') {
@@ -219,7 +327,8 @@ export function buildIframeScript() {
       }
     });
     if (m !== 'block') hideHandle();
-    if (m !== 'edit' && m !== 'drag' && typeof hideTools === 'function') hideTools();
+    if (m !== previousMode && typeof hideTools === 'function') hideTools();
+    if (m !== previousMode && typeof unpinHandle === 'function') unpinHandle();
     if (typeof sweepDragStyles === 'function') sweepDragStyles();   // recover any stranded dimmed block
     if (typeof refreshDragEligibilityMarks === 'function') refreshDragEligibilityMarks();
     // Blocks bound to a URL show a pointer cursor in edit/view; in view mode a
@@ -237,7 +346,7 @@ export function buildIframeScript() {
   // jarring "ghost delete" bug. The marker/line stays put while empty.
   // To explicitly delete a line, the user backspaces in an already-empty
   // text leaf (the keydown handler below), or uses the row × handle.
-  var inputTimer;
+  var inputTimers = Object.create(null);
   var LINE_TAGS = /^(LI|TR|TD|TH|DT|DD)$/;
 
   function findRemovableAncestor(el) {
@@ -263,18 +372,116 @@ export function buildIframeScript() {
     if (mode !== 'edit') return;
     var el = e.target.closest && e.target.closest('[data-hce-text]');
     if (!el) return;
+    if (el.tagName === 'TEXTAREA') return;   // form-state handler uses .value
     var id = el.getAttribute('data-block-id');
     lastLocalInputAt[id] = Date.now();
-    clearTimeout(inputTimer);
+    clearTimeout(inputTimers[id]);
     var ms = (el.textContent === '') ? 1000 : 180;
-    inputTimer = setTimeout(function() {
+    inputTimers[id] = setTimeout(function() {
       window.parent.postMessage({
         type: 'block-text-change',
         id: id,
         text: el.textContent
       }, '*');
+      delete inputTimers[id];
     }, ms);
   });
+  document.addEventListener('focusout', function(e) {
+    var el = e.target.closest && e.target.closest('[data-hce-text]');
+    if (!el) return;
+    var id = el.getAttribute('data-block-id');
+    if (!id || !inputTimers[id]) return;
+    clearTimeout(inputTimers[id]);
+    delete inputTimers[id];
+    window.parent.postMessage({ type: 'block-text-change', id: id, text: el.textContent }, '*');
+  }, true);
+  document.addEventListener('reset', function(e) {
+    var form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+    // Reset applies defaults after the event dispatch. Capture those live
+    // values on the next task and publish them like ordinary control changes.
+    setTimeout(function () {
+      form.querySelectorAll('input[data-block-id],textarea[data-block-id],select[data-block-id]').forEach(postFormState);
+    }, 0);
+  }, true);
+
+  var formTimers = Object.create(null);
+  function formPayload(el) {
+    if (!el || !el.getAttribute) return null;
+    var id = el.getAttribute('data-block-id');
+    if (!id) return null;
+    var tag = el.tagName;
+    if (tag === 'INPUT') {
+      var type = (el.type || 'text').toLowerCase();
+      if (type === 'file' || type === 'password') return null;
+      return { id: id, tag: 'input', inputType: type, value: el.value, checked: !!el.checked };
+    }
+    if (tag === 'TEXTAREA') return { id: id, tag: 'textarea', value: el.value };
+    if (tag === 'SELECT') {
+      var selected = [];
+      for (var i = 0; i < el.options.length; i++) if (el.options[i].selected) selected.push(i);
+      return { id: id, tag: 'select', selected: selected };
+    }
+    return null;
+  }
+  function postFormState(el) {
+    var payload = formPayload(el);
+    if (payload) window.parent.postMessage({ type: 'form-control-change', control: payload }, '*');
+  }
+  function flushPendingInputs() {
+    for (var textId in inputTimers) {
+      clearTimeout(inputTimers[textId]);
+      delete inputTimers[textId];
+      var textEl = document.querySelector('[data-block-id="' + textId + '"]');
+      if (textEl) window.parent.postMessage({
+        type: 'block-text-change', id: textId, text: textEl.textContent
+      }, '*');
+    }
+    for (var formId in formTimers) {
+      clearTimeout(formTimers[formId]);
+      delete formTimers[formId];
+      var formEl = document.querySelector('[data-block-id="' + formId + '"]');
+      if (formEl) postFormState(formEl);
+    }
+  }
+  function collectLiveState(requestId) {
+    // Do not cancel normal debounce timers while taking a snapshot. If the
+    // response is delayed or lost, those timers are the only path that still
+    // persists the user's input. Duplicate later events are harmless no-ops in
+    // the parent once the snapshot has already committed the same value.
+    var texts = [];
+    document.querySelectorAll('[data-hce-text]').forEach(function(el) {
+      texts.push({ id: el.getAttribute('data-block-id'), text: el.tagName === 'TEXTAREA' ? el.value : el.textContent });
+    });
+    var controls = [];
+    document.querySelectorAll('input[data-block-id],textarea[data-block-id],select[data-block-id]').forEach(function(el) {
+      var payload = formPayload(el); if (payload) controls.push(payload);
+    });
+    window.parent.postMessage({ type: 'live-state-snapshot', requestId: requestId, texts: texts, controls: controls }, '*');
+  }
+  document.addEventListener('input', function(e) {
+    var el = e.target && e.target.closest && e.target.closest('input[data-block-id],textarea[data-block-id]');
+    var payload = formPayload(el);
+    if (!payload) return;
+    clearTimeout(formTimers[payload.id]);
+    formTimers[payload.id] = setTimeout(function () { delete formTimers[payload.id]; postFormState(el); }, 180);
+  }, true);
+  document.addEventListener('change', function(e) {
+    var el = e.target && e.target.closest && e.target.closest('input[data-block-id],textarea[data-block-id],select[data-block-id]');
+    var payload = formPayload(el);
+    if (!payload) return;
+    clearTimeout(formTimers[payload.id]);
+    delete formTimers[payload.id];
+    postFormState(el);
+  }, true);
+  document.addEventListener('focusout', function(e) {
+    var el = e.target && e.target.closest && e.target.closest('input[data-block-id],textarea[data-block-id],select[data-block-id]');
+    var payload = formPayload(el);
+    if (!payload || !formTimers[payload.id]) return;
+    clearTimeout(formTimers[payload.id]);
+    delete formTimers[payload.id];
+    postFormState(el);
+  }, true);
 
   // Explicit removal: Backspace/Delete inside an already-empty leaf removes
   // the containing line (or the leaf itself if no line ancestor exists).
@@ -293,25 +500,14 @@ export function buildIframeScript() {
     }
   });
 
-  // Thin forwarder used by the beforeinput historyUndo fallback (some
-  // browsers fire historyUndo without going through keydown). The main
-  // ⌘Z / ⌘⇧Z path is the capture-phase keydown handler defined later.
-  function forwardUndo(isRedo) {
-    for (var k in lastLocalInputAt) delete lastLocalInputAt[k];
-    window.parent.postMessage({
-      type: isRedo ? 'request-redo' : 'request-undo'
-    }, '*');
-  }
-  document.addEventListener('beforeinput', function(e) {
-    if (e.inputType === 'historyUndo') { e.preventDefault(); forwardUndo(false); }
-    if (e.inputType === 'historyRedo') { e.preventDefault(); forwardUndo(true); }
-  });
-
   // ─── Pick the best ancestor for non-text targets ───
   function pickTarget(node) {
     if (!node || node.id === '__hce-handle' || node.id === '__hce-tools') return null;
     if (node.closest && node.closest('#__hce-tools')) return null;
-    var el = node.closest && node.closest('[data-block-id]');
+    var placeholder = node.closest && node.closest('[data-hce-placeholder-for]');
+    var placeholderId = placeholder && placeholder.getAttribute('data-hce-placeholder-for');
+    var el = placeholderId ? document.querySelector('[data-block-id="' + placeholderId + '"]')
+      : (node.closest && node.closest('[data-block-id]'));
     if (!el) {
       var p = node.parentElement;
       while (p && !p.getAttribute('data-block-id')) p = p.parentElement;
@@ -584,6 +780,7 @@ export function buildIframeScript() {
       var tIsMedia = toolsTarget && (toolsTarget.tagName === 'IMG' || toolsTarget.tagName === 'VIDEO' || toolsTarget.tagName === 'AUDIO' || tIsEmbedVideo);
       var tIsImage = toolsTarget && toolsTarget.tagName === 'IMG';
       var tIsLink = toolsTarget && toolsTarget.tagName === 'A' && toolsTarget.hasAttribute('data-hce-link');
+      var tCanDuplicate = toolsTarget && toolsTarget.tagName !== 'CAPTION';
       var tBlockLinkTarget = blockLinkTarget(toolsTarget);
       var tHasLink = !!tBlockLinkTarget;
       // "+" inserts a new image / video frame right BELOW this block (the
@@ -593,7 +790,7 @@ export function buildIframeScript() {
       tools.innerHTML =
           '<button class="add" title="' + pt('tb_add') + '">' + ICON_PLUS + '</button>'
         + '<span class="sep"></span>'
-        + '<button class="dup" title="' + pt('tb_dup') + '">' + ICON_COPY + '</button>'
+        + (tCanDuplicate ? '<button class="dup" title="' + pt('tb_dup') + '">' + ICON_COPY + '</button>' : '')
         + (tIsMedia ? '<button class="replace" title="' + pt('tb_replace') + '">' + ICON_IMG + '</button>' : '')
         + (tIsLink ? '<button class="link-edit" title="' + pt('tb_link_edit') + '">' + ICON_LINK + '</button>' : '')
         + (tIsImage ? '<button class="crop" title="' + pt('tb_crop') + '">' + ICON_CROP + '</button>' : '')
@@ -631,7 +828,8 @@ export function buildIframeScript() {
           startCrop(img);
         });
       }
-      tools.querySelector('.dup').addEventListener('click', function(e) {
+      var dupButton = tools.querySelector('.dup');
+      if (dupButton) dupButton.addEventListener('click', function(e) {
         e.preventDefault(); e.stopPropagation();
         if (!toolsTarget) return;
         var dupMsg = {
@@ -731,8 +929,32 @@ export function buildIframeScript() {
   function tableRows(table) {
     var out = [];
     var all = table.querySelectorAll('tr');
-    for (var i = 0; i < all.length; i++) if (cellsInRow(all[i]).length) out.push(all[i]);
+    for (var i = 0; i < all.length; i++) if (all[i].closest('table') === table && cellsInRow(all[i]).length) out.push(all[i]);
     return out;
+  }
+  function tableHasMergedCells(table) {
+    var rows = tableRows(table);
+    for (var r = 0; r < rows.length; r++) {
+      var cells = cellsInRow(rows[r]);
+      for (var c = 0; c < cells.length; c++) if (cells[c].colSpan !== 1 || cells[c].rowSpan !== 1) return true;
+    }
+    return !!table.querySelector(':scope > colgroup');
+  }
+  function tableHasUnsupportedStructure(table) {
+    if (tableHasMergedCells(table)) return true;
+    var rows = tableRows(table);
+    if (!rows.length) return true;
+    var width = cellsInRow(rows[0]).length;
+    if (!width) return true;
+    for (var i = 0; i < rows.length; i++) if (cellsInRow(rows[i]).length !== width) return true;
+    return false;
+  }
+  function tableHasMultipleRowGroups(table) {
+    var rows = tableRows(table);
+    if (!rows.length) return false;
+    var parent = rows[0].parentElement;
+    for (var i = 1; i < rows.length; i++) if (rows[i].parentElement !== parent) return true;
+    return false;
   }
   // True when a table has something to reorder INSIDE it — more than one column
   // or more than one row. Used to decide whether to show the row/column bars in
@@ -777,6 +999,7 @@ export function buildIframeScript() {
   function showTableControls(table) {
     if (!table || !table.getAttribute) return;
     if (mode !== 'edit' && mode !== 'drag') { hideTableControls(); return; }
+    if (tableHasUnsupportedStructure(table)) { hideTableControls(); return; }
     var rows = tableRows(table);
     if (!rows.length) { hideTableControls(); return; }
     // Already showing this exact table → just reposition (cheap; scroll path).
@@ -794,7 +1017,7 @@ export function buildIframeScript() {
 
     // Drag grip — the clear affordance for moving the whole table. Drag mode
     // only: in edit mode the overlay is for editing rows / columns, not moving.
-    if (mode === 'drag') {
+    if (mode === 'drag' && table.hasAttribute('data-hce-draggable')) {
       var grip = document.createElement('div');
       grip.className = 'tc-grip';
       grip.title = pt('ti_drag');
@@ -834,7 +1057,8 @@ export function buildIframeScript() {
 
     // Row segments — one per row, using each row's first cell.
     var ri;
-    for (ri = 0; ri < rows.length; ri++) {
+    var allowRowDrag = mode !== 'drag' || !tableHasMultipleRowGroups(table);
+    for (ri = 0; ri < rows.length && allowRowDrag; ri++) {
       (function (idx) {
         var first = cellsInRow(rows[idx])[0];
         var repId = first.getAttribute('data-block-id');
@@ -954,6 +1178,7 @@ export function buildIframeScript() {
     tableMenu.innerHTML =
         tableMenuButton('ins-left', ICON_PLUS, pt('ti_col_left'))
       + tableMenuButton('ins-right', ICON_PLUS, pt('ti_col_right'))
+      + tableMenuButton('dup-col', ICON_COPY, pt('tb_dup_col'))
       + '<div class="m-sep"></div>'
       + tableMenuButton('del danger', ICON_X, pt('ti_col_del'));
     tableMenu.querySelector('.ins-left').addEventListener('click', function (e) {
@@ -966,6 +1191,10 @@ export function buildIframeScript() {
       tableCtlReshow = tableCtlId; hideTools();
       window.parent.postMessage({ type: 'request-col-insert', id: cellId, right: true }, '*');
     });
+    tableMenu.querySelector('.dup-col').addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation(); tableCtlReshow = tableCtlId; hideTools();
+      window.parent.postMessage({ type: 'request-column-duplicate', id: cellId }, '*');
+    });
     tableMenu.querySelector('.del').addEventListener('click', function (e) {
       e.preventDefault(); e.stopPropagation();
       hideTools();
@@ -976,12 +1205,16 @@ export function buildIframeScript() {
   function openRowMenu(seg, cellId, isLast) {
     hideTableMenu();
     seg.classList.add('active');
+    var rowElement = document.querySelector('[data-block-id="' + cellId + '"]');
+    var inHead = !!(rowElement && rowElement.closest('thead'));
     tableMenu.innerHTML =
-        tableMenuButton('ins-above', ICON_PLUS, pt('ti_row_above'))
+        (inHead ? '' : tableMenuButton('ins-above', ICON_PLUS, pt('ti_row_above')))
       + tableMenuButton('ins-below', ICON_PLUS, pt('ti_row_below'))
+      + tableMenuButton('dup-row', ICON_COPY, pt('tb_dup_row'))
       + '<div class="m-sep"></div>'
       + tableMenuButton('del danger', ICON_X, pt('ti_row_del'));
-    tableMenu.querySelector('.ins-above').addEventListener('click', function (e) {
+    var aboveButton = tableMenu.querySelector('.ins-above');
+    if (aboveButton) aboveButton.addEventListener('click', function (e) {
       e.preventDefault(); e.stopPropagation();
       tableCtlReshow = tableCtlId; hideTools();
       window.parent.postMessage({ type: 'request-row-insert', id: cellId, below: false }, '*');
@@ -990,6 +1223,10 @@ export function buildIframeScript() {
       e.preventDefault(); e.stopPropagation();
       tableCtlReshow = tableCtlId; hideTools();
       window.parent.postMessage({ type: 'request-row-insert', id: cellId, below: true }, '*');
+    });
+    tableMenu.querySelector('.dup-row').addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation(); tableCtlReshow = tableCtlId; hideTools();
+      window.parent.postMessage({ type: 'request-block-duplicate', id: cellId }, '*');
     });
     tableMenu.querySelector('.del').addEventListener('click', function (e) {
       e.preventDefault(); e.stopPropagation();
@@ -1309,6 +1546,13 @@ export function buildIframeScript() {
       e.stopPropagation();
       var el = pickTarget(e.target);
       if (!el) return;
+      // Generated layout rows are implementation details and may collapse
+      // automatically. Anchor comments to the clicked child instead so they do
+      // not become orphaned when a two-column row returns to one column.
+      if (el.hasAttribute && el.hasAttribute('data-hce-row')) {
+        var child = e.target.closest && e.target.closest('[data-block-id]');
+        if (child && child !== el) el = child;
+      }
       var id = el.getAttribute('data-block-id');
       window.parent.postMessage({
         type: 'comment-toggle-select',
@@ -1437,6 +1681,13 @@ export function buildIframeScript() {
   function applyMediaSrc(el, src) {
     if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') { var sc = el.querySelectorAll('source'); for (var i = 0; i < sc.length; i++) sc[i].removeAttribute('src'); }
     if (src) el.setAttribute('src', src);
+    else {
+      el.removeAttribute('src');
+      if (el.__hcePh && el.__hcePh.parentNode) el.__hcePh.remove();
+      el.__hcePh = null; el.__hcePhDone = false;
+      makeMediaPlaceholder(el);
+      return;
+    }
     el.style.display = el.__hcePrevDisplay || '';
     if (el.__hcePh && el.__hcePh.parentNode) { el.__hcePh.parentNode.removeChild(el.__hcePh); }
     el.__hcePh = null;
@@ -1444,25 +1695,37 @@ export function buildIframeScript() {
   }
   function setMediaSrc(el, src) {
     if (!src) return;
+    if (typeof Blob !== 'undefined' && src instanceof Blob) {
+      window.parent.postMessage({ type: 'media-committed', id: el.getAttribute('data-block-id'), file: src }, '*');
+      return;
+    }
     applyMediaSrc(el, src);
     window.parent.postMessage({ type: 'media-committed', id: el.getAttribute('data-block-id'), src: src }, '*');
   }
+  function fileExtension(file) {
+    var name = String((file && file.name) || '').toLowerCase();
+    var dot = name.lastIndexOf('.');
+    return dot >= 0 ? name.slice(dot + 1) : '';
+  }
+  function isImageFile(file) {
+    var type = String((file && file.type) || '').toLowerCase();
+    if (type.indexOf('image/') === 0) return true;
+    var ext = fileExtension(file);
+    return ['png','jpg','jpeg','gif','webp','avif','bmp'].indexOf(ext) >= 0;
+  }
+  function isVideoFile(file) {
+    var type = String((file && file.type) || '').toLowerCase();
+    if (type.indexOf('video/') === 0) return true;
+    var ext = fileExtension(file);
+    return ['mp4','webm','ogv','mov','m4v'].indexOf(ext) >= 0;
+  }
   function inlineImageFile(file, cb) {
-    if (!file || file.type.indexOf('image/') !== 0) { cb(null); return; }
-    var url = URL.createObjectURL(file);
-    var img = new Image();
-    img.onload = function () {
-      var max = 1600, w = img.naturalWidth, h = img.naturalHeight;
-      var scale = Math.min(1, max / Math.max(w, h));
-      var cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
-      var c = document.createElement('canvas'); c.width = cw; c.height = ch;
-      c.getContext('2d').drawImage(img, 0, 0, cw, ch);
-      URL.revokeObjectURL(url);
-      var mime = /png|gif|webp/.test(file.type) ? 'image/png' : 'image/jpeg';
-      try { cb(c.toDataURL(mime, 0.85)); } catch (err) { cb(null); }
-    };
-    img.onerror = function () { URL.revokeObjectURL(url); cb(null); };
-    img.src = url;
+    if (!file || !isImageFile(file)) { cb(null, 'invalid'); return; }
+    if (file.size > MAX_IMAGE_SOURCE_BYTES) { alert(pt('err_image_source_large')); cb(null, 'reported'); return; }
+    // Transfer the File itself. The parent can reject metadata-only extremes
+    // before creating a second Base64 copy, then adapt quality and dimensions
+    // against the exact remaining collaboration capacity.
+    cb(file);
   }
   function pickFile(accept, cb) {
     var inp = document.createElement('input'); inp.type = 'file'; inp.accept = accept; inp.style.display = 'none';
@@ -1476,10 +1739,9 @@ export function buildIframeScript() {
     pickFile(accept, function (f) {
       if (!f) return;
       if (kind === 'image') {
-        inlineImageFile(f, function (data) { if (data) setMediaSrc(el, data); else alert(pt('err_img_read')); });
+        inlineImageFile(f, function (data, error) { if (data) setMediaSrc(el, data); else if (error !== 'reported') alert(pt('err_img_read')); });
       } else {
-        var cap = kind === 'audio' ? 10 : 6;
-        if (f.size > cap * 1024 * 1024) { alert(pt('err_file_large')); return; }
+        if (f.size > MAX_INLINE_BINARY_SOURCE_BYTES) { alert(pt('err_file_large')); return; }
         var rd = new FileReader();
         rd.onload = function () { setMediaSrc(el, rd.result); };
         rd.readAsDataURL(f);
@@ -1500,7 +1762,9 @@ export function buildIframeScript() {
       return;
     }
     if (targetKind === mediaKindOf(el)) { setMediaSrc(el, src); return; }
-    window.parent.postMessage({ type: 'request-swap-media', id: el.getAttribute('data-block-id'), kind: targetKind, src: src }, '*');
+    var payload = { type: 'request-swap-media', id: el.getAttribute('data-block-id'), kind: targetKind };
+    if (typeof Blob !== 'undefined' && src instanceof Blob) payload.file = src; else payload.src = src;
+    window.parent.postMessage(payload, '*');
   }
   // Pick a local file and attach it AS targetKind (drives the photo/video
   // switch). Images are downscaled + inlined; small videos inlined as a data-URI.
@@ -1509,9 +1773,9 @@ export function buildIframeScript() {
     pickFile(accept, function (f) {
       if (!f) return;
       if (targetKind === 'image') {
-        inlineImageFile(f, function (data) { if (data) commitMedia(el, 'image', data); else alert(pt('err_img_read')); });
+        inlineImageFile(f, function (data, error) { if (data) commitMedia(el, 'image', data); else if (error !== 'reported') alert(pt('err_img_read')); });
       } else {
-        if (f.size > 6 * 1024 * 1024) { alert(pt('err_video_large')); return; }
+        if (f.size > MAX_INLINE_BINARY_SOURCE_BYTES) { alert(pt('err_video_large')); return; }
         var rd = new FileReader(); rd.onload = function () { commitMedia(el, 'video', rd.result); }; rd.readAsDataURL(f);
       }
     });
@@ -1520,7 +1784,7 @@ export function buildIframeScript() {
   // chosen / dropped file or pasted URL so nobody has to pre-pick a type.
   function mediaKindFromFile(f) {
     var t = (f && f.type) || '';
-    if (t.indexOf('video/') === 0) return 'video';
+    if (isVideoFile(f)) return 'video';
     if (t.indexOf('audio/') === 0) return 'audio';
     return 'image';
   }
@@ -1577,9 +1841,8 @@ export function buildIframeScript() {
     pickFile(accept, function (f) {
       if (!f) return;
       var k = mediaKindFromFile(f);
-      if (k === 'image') { inlineImageFile(f, function (data) { if (data) commitMedia(el, 'image', data); else alert(pt('err_img_read')); }); return; }
-      var cap = (k === 'audio') ? 10 : 6;
-      if (f.size > cap * 1024 * 1024) { alert(pt('err_file_large')); return; }
+      if (k === 'image') { inlineImageFile(f, function (data, error) { if (data) commitMedia(el, 'image', data); else if (error !== 'reported') alert(pt('err_img_read')); }); return; }
+      if (f.size > MAX_INLINE_BINARY_SOURCE_BYTES) { alert(pt('err_file_large')); return; }
       var rd = new FileReader(); rd.onload = function () { commitMedia(el, k, rd.result); }; rd.readAsDataURL(f);
     });
   }
@@ -1774,10 +2037,10 @@ export function buildIframeScript() {
     var box = document.createElement('div');
     box.className = '__hce-media-ph';
     box.setAttribute('contenteditable', 'false');
-    // Transfer the original element's data-block-id to the placeholder so it's draggable
-    if (el.hasAttribute('data-block-id')) {
-      box.setAttribute('data-block-id', el.getAttribute('data-block-id'));
-    }
+    // Keep exactly one owner for each block id. The placeholder delegates every
+    // action to the hidden media element; duplicating the id made querySelector
+    // move the placeholder while the persisted media stayed behind.
+    box.setAttribute('data-hce-placeholder-for', el.getAttribute('data-block-id') || '');
     // Size the box to roughly where the image would sit, so layout doesn't
     // collapse. Prefer width/height attrs; otherwise read the element's
     // rendered/computed size (captured while it's still laid out). Many imgs
@@ -1839,8 +2102,7 @@ export function buildIframeScript() {
       var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (!f) return;
       var k = mediaKindFromFile(f);
       if (k === 'image') { inlineImageFile(f, function (data) { if (data) commitMedia(el, 'image', data); }); return; }
-      var cap = (k === 'audio') ? 10 : 6;
-      if (f.size > cap * 1024 * 1024) { alert(pt('err_file_large')); return; }
+      if (f.size > MAX_INLINE_BINARY_SOURCE_BYTES) { alert(pt('err_file_large')); return; }
       var rd = new FileReader(); rd.onload = function () { commitMedia(el, k, rd.result); }; rd.readAsDataURL(f);
     });
   }
@@ -2167,6 +2429,7 @@ export function buildIframeScript() {
   // block children of its own) — lets users move blocks into empty cards/cells.
   function isEmptyContainerEl(el) {
     if (!el) return false;
+    if (el.hasAttribute && el.hasAttribute('data-hce-text')) return false;
     var t = el.tagName;
     if (t !== 'DIV' && t !== 'SECTION' && t !== 'ARTICLE' && t !== 'MAIN' && t !== 'ASIDE' && t !== 'LI' && t !== 'TD' && t !== 'HEADER' && t !== 'FOOTER' && t !== 'NAV') return false;
     if (el.querySelector('[data-block-id]')) return false;
@@ -2179,6 +2442,7 @@ export function buildIframeScript() {
   // below it. Rows we build for columns are excluded (those reorder normally).
   function isNestContainerEl(el, dragged) {
     if (!el) return false;
+    if (el.hasAttribute && el.hasAttribute('data-hce-text')) return false;
     if (el === dragged || (dragged && dragged.contains(el))) return false;
     if (el.hasAttribute && el.hasAttribute('data-hce-row')) return false;
     var t = el.tagName;
@@ -2204,6 +2468,8 @@ export function buildIframeScript() {
     if (moving === target || moving.contains(target)) return false;
     var parent = target.parentNode;
     if (!parent) return false;
+    if (!dragDestinationAllows(parent, moving.tagName)) return false;
+    if (parent.tagName === 'DETAILS' && target.tagName === 'SUMMARY' && before && moving.tagName !== 'SUMMARY') return false;
     if (moving.parentNode !== parent) return true;
     if (before) return moving.nextElementSibling !== target;
     return target.nextElementSibling !== moving;
@@ -2212,8 +2478,20 @@ export function buildIframeScript() {
   function canMoveInto(moving, container, atStart) {
     if (!moving || !container) return false;
     if (moving === container || moving.contains(container)) return false;
+    if (container.hasAttribute && container.hasAttribute('data-hce-text')) return false;
+    if (!dragDestinationAllows(container, moving.tagName)) return false;
     if (moving.parentNode !== container) return true;
     return atStart ? (moving !== container.firstElementChild) : (moving !== container.lastElementChild);
+  }
+  function dragDestinationAllows(parent, childTag) {
+    if (!parent) return false;
+    var tag = parent.tagName;
+    if (tag === 'UL' || tag === 'OL' || tag === 'MENU') return childTag === 'LI';
+    if (tag === 'DL') return childTag === 'DT' || childTag === 'DD';
+    if (tag === 'TABLE' || tag === 'THEAD' || tag === 'TBODY' || tag === 'TFOOT' || tag === 'TR' || tag === 'COLGROUP') return false;
+    if (tag === 'DETAILS' && childTag === 'SUMMARY') return !parent.querySelector(':scope > summary');
+    if (tag === 'FIGURE' && childTag === 'FIGCAPTION') return !parent.querySelector(':scope > figcaption');
+    return true;
   }
 
   function siblingReorderTargets(moving) {
@@ -2556,6 +2834,7 @@ export function buildIframeScript() {
   }
   function openAddMenu(afterEl, btn, inCell) {
     closeAddMenu();
+    inCell = !!inCell || !!(afterEl && afterEl.closest && afterEl.closest('td, th'));
     // Normally the new block lands as a full-width block BELOW the selection,
     // climbing out of any column row. When inserting from a cell's "+", target
     // the cell itself so media / links land INSIDE that cell. For container
@@ -2619,6 +2898,7 @@ export function buildIframeScript() {
     hoverHandle.setAttribute('contenteditable', 'false');
     hoverHandle.style.cssText = 'position:fixed;z-index:2147483550;display:none;align-items:center;justify-content:center;' +
       'width:18px;height:22px;border-radius:5px;background:#fff;border:1px solid #e6e6e9;box-shadow:0 1px 3px rgba(20,24,34,.14);color:#9aa0a6;cursor:grab;';
+    hoverHandle.title = pt('tb_move');
     hoverHandle.innerHTML = ICON_GRIP;
     hoverHandle.addEventListener('mousedown', function (e) {
       e.preventDefault(); e.stopPropagation();
@@ -2747,8 +3027,10 @@ export function buildIframeScript() {
   function resolveCandidate(x, y, alt) {
     var t = document.elementFromPoint(x, y);
     if (!t || !t.closest) return null;
-    if (t.closest('#__hce-tools,#__hce-style-panel,#__hce-hover-handle,#__hce-hover-outline,.__hce-rsz,#__hce-media-menu,#__hce-add-menu,.__hce-media-ph,#__hce-drop-line')) return null;
-    var el = t.closest('[data-block-id]');
+    if (t.closest('#__hce-tools,#__hce-style-panel,#__hce-hover-handle,#__hce-hover-outline,.__hce-rsz,#__hce-media-menu,#__hce-add-menu,#__hce-drop-line')) return null;
+    var placeholder = t.closest('[data-hce-placeholder-for]');
+    var placeholderId = placeholder && placeholder.getAttribute('data-hce-placeholder-for');
+    var el = placeholderId ? document.querySelector('[data-block-id="' + placeholderId + '"]') : t.closest('[data-block-id]');
     // Climb past inline-level runs (strong / em / a / span text) to the nearest
     // block — that's the unit people actually mean to grab, not a single word.
     while (el && el !== document.body) {
@@ -2882,13 +3164,18 @@ export function buildIframeScript() {
       var cellTbl = el.closest('table[data-block-id], table');
       if (cellTbl && cellTbl.getAttribute && cellTbl.getAttribute('data-block-id')) el = cellTbl;
     }
+    var resetBefore = hceSnapList([el]);
     var media = el.tagName === 'IMG' || el.tagName === 'VIDEO' || (el.tagName === 'IFRAME' && el.getAttribute('data-hce-video') === 'embed');
     ['width', 'height', 'min-height', 'max-width', 'aspect-ratio', 'object-fit', 'margin-left', 'margin-top'].forEach(function (p) { el.style.removeProperty(p); });
     if (media) { el.style.setProperty('width', '100%'); el.style.setProperty('height', 'auto'); el.style.setProperty('max-width', '100%'); }
     positionPins(el);
     hideSizeTip();
-    window.parent.postMessage({ type: 'style-committed',
-      styles: [{ id: el.getAttribute('data-block-id'), style: el.getAttribute('style') || '' }] }, '*');
+    var resetAfter = hceSnapList([el]);
+    if (hceListsDiffer(resetBefore, resetAfter)) {
+      hcePushStyleUndo(resetBefore, resetAfter);
+      window.parent.postMessage({ type: 'style-committed',
+        styles: [{ id: el.getAttribute('data-block-id'), style: el.getAttribute('style') || '' }] }, '*');
+    }
   }
   function startResize(el, ev, dir) {
     if ((el.tagName === 'TD' || el.tagName === 'TH') && el.closest) {
@@ -2934,6 +3221,7 @@ export function buildIframeScript() {
     if (isCell && tableEl && rowEl && colIndex >= 0) {
       var trs = tableEl.querySelectorAll('tr');
       for (var ti = 0; ti < trs.length; ti++) {
+        if (trs[ti].closest('table') !== tableEl) continue;
         var tc = trs[ti].children[colIndex];
         if (tc && (tc.tagName === 'TD' || tc.tagName === 'TH')) colCells.push(tc);
       }
@@ -3567,14 +3855,16 @@ export function buildIframeScript() {
   }
   function hideFileDropLine() { if (fileDropLine) fileDropLine.style.display = 'none'; }
   function postInsertMedia(targetId, before, kind, src) {
-    window.parent.postMessage({ type: 'request-insert-media-at', targetId: targetId, before: before, kind: kind, src: src }, '*');
+    var payload = { type: 'request-insert-media-at', targetId: targetId, before: before, kind: kind };
+    if (typeof Blob !== 'undefined' && src instanceof Blob) payload.file = src; else payload.src = src;
+    window.parent.postMessage(payload, '*');
   }
   function acceptMediaFile(f, targetId, before) {
     if (!f) return;
-    if (f.type.indexOf('image/') === 0) {
-      inlineImageFile(f, function (data) { if (data) postInsertMedia(targetId, before, 'image', data); else alert('无法读取为图片'); });
-    } else if (f.type.indexOf('video/') === 0) {
-      if (f.size > 6 * 1024 * 1024) { alert('视频较大，建议用「替换」粘贴链接'); return; }
+    if (isImageFile(f)) {
+      inlineImageFile(f, function (data, error) { if (data) postInsertMedia(targetId, before, 'image', data); else if (error !== 'reported') alert(pt('err_img_read')); });
+    } else if (isVideoFile(f)) {
+      if (f.size > MAX_INLINE_BINARY_SOURCE_BYTES) { alert('视频较大，建议用「替换」粘贴链接'); return; }
       var rd = new FileReader(); rd.onload = function () { postInsertMedia(targetId, before, 'video', rd.result); }; rd.readAsDataURL(f);
     } else { alert('请拖入图片或视频文件'); }
   }
@@ -3622,8 +3912,10 @@ export function buildIframeScript() {
 
   // ─── Parent → iframe commands ─────────────────
   window.addEventListener('message', function(e) {
+    if (e.source !== window.parent) return;
     var d = e.data;
     if (!d || d._src !== 'hce') return;
+    if (d.cmd === 'collect-live-state') { collectLiveState(d.requestId); return; }
 
     if (d.cmd === 'set-mode') applyMode(d.mode);
 
@@ -3639,8 +3931,10 @@ export function buildIframeScript() {
       var mv = document.querySelector('[data-block-id="' + d.id + '"]');
       var tg = document.querySelector('[data-block-id="' + d.targetId + '"]');
       if (mv && tg && tg.parentNode) {
+        var mvPh = mv.__hcePh;
         if (d.before) tg.parentNode.insertBefore(mv, tg);
         else tg.parentNode.insertBefore(mv, tg.nextSibling);
+        if (mvPh && mv.parentNode) mv.parentNode.insertBefore(mvPh, mv);
         revealMoved(mv);
       }
     }
@@ -3653,10 +3947,13 @@ export function buildIframeScript() {
       var wmMv = document.querySelector('[data-block-id="' + d.id + '"]');
       var wmTg = document.querySelector('[data-block-id="' + d.targetId + '"]');
       if (wmMv && wmTg && wmTg.parentNode && !wmMv.contains(wmTg)) {
+        var wmOldParent = wmMv.parentElement;
         var wrapEl = document.createElement(d.wrapTag || 'ul');
         wrapEl.setAttribute('data-block-id', d.wrapId);
         wmTg.parentNode.insertBefore(wrapEl, d.before ? wmTg : wmTg.nextSibling);
         wrapEl.appendChild(wmMv);
+        if (d.removeEmptyParent && wmOldParent && /^(UL|OL|MENU)$/.test(wmOldParent.tagName) &&
+            !wmOldParent.querySelector(':scope > li')) wmOldParent.remove();
         revealMoved(wmMv);
       }
     }
@@ -3666,8 +3963,10 @@ export function buildIframeScript() {
       var miMv = document.querySelector('[data-block-id="' + d.id + '"]');
       var miBox = document.querySelector('[data-block-id="' + d.containerId + '"]');
       if (miMv && miBox && miMv !== miBox && !miMv.contains(miBox)) {
+        var miPh = miMv.__hcePh;
         if (d.atStart && miBox.firstChild) miBox.insertBefore(miMv, miBox.firstChild);
         else miBox.appendChild(miMv);
+        if (miPh && miMv.parentNode) miMv.parentNode.insertBefore(miPh, miMv);
         revealMoved(miMv);
       }
     }
@@ -3679,6 +3978,7 @@ export function buildIframeScript() {
       var pbMv = document.querySelector('[data-block-id="' + d.movingId + '"]');
       var pbTg = document.querySelector('[data-block-id="' + d.targetId + '"]');
       if (pbMv && pbTg && pbMv !== pbTg && !pbMv.contains(pbTg) && pbTg.parentNode) {
+        var pbMvPh = pbMv.__hcePh;
         var pbRow;
         if (d.newRow) {
           pbRow = document.createElement('div');
@@ -3704,6 +4004,7 @@ export function buildIframeScript() {
             if (child && typeof it.style === 'string') child.setAttribute('style', it.style);
           }
         }
+        if (pbMvPh && pbMv.parentNode) pbMv.parentNode.insertBefore(pbMvPh, pbMv);
         revealMoved(pbMv);
       }
     }
@@ -3714,10 +4015,20 @@ export function buildIframeScript() {
       if (typeof refreshVideoState === 'function') refreshVideoState();
     }
 
+    if (d.cmd === 'revert-media-src') {
+      var revertEl = document.querySelector('[data-block-id="' + d.id + '"]');
+      if (revertEl && (revertEl.tagName === 'IMG' || revertEl.tagName === 'VIDEO' || revertEl.tagName === 'AUDIO')) {
+        revertEl.removeAttribute('src');
+        makeMediaPlaceholder(revertEl);
+      }
+    }
+
     // Replace an element wholesale (e.g. image ↔ video type swap). Keeps the
     // same data-block-id + position; drops any attached upload placeholder and
     // re-scans so a still-missing source becomes a placeholder again.
     if (d.cmd === 'replace-element') {
+      // Style history stores block ids and re-resolves current nodes on undo,
+      // so it remains valid across this replacement.
       var rOld = document.querySelector('[data-block-id="' + d.id + '"]');
       if (rOld && d.html) {
         var rTpl = document.createElement('template');
@@ -3762,6 +4073,7 @@ export function buildIframeScript() {
     if (d.cmd === 'set-lang') {
       panelLang = (d.lang === 'zh') ? 'zh' : 'en';
       applyPanelI18n();
+      if (hoverHandle) hoverHandle.title = pt('tb_move');
       // Re-render the toolbar if it's currently showing (labels are baked in).
       if (tools && tools.style.display !== 'none' && toolsTarget) renderToolsContent();
     }
@@ -3816,6 +4128,7 @@ export function buildIframeScript() {
     if (d.cmd === 'set-block-text') {
       var el = document.querySelector('[data-block-id="' + d.id + '"]');
       if (!el) return;
+      if (el.tagName === 'TEXTAREA') { el.value = d.text; el.textContent = d.text; return; }
       if (el.textContent === d.text) return;
       // Only skip the update if the local user is _actively_ typing in this
       // exact element right now. Idle focus (cursor parked but no recent
@@ -3823,7 +4136,7 @@ export function buildIframeScript() {
       var typing = document.activeElement === el
                 && lastLocalInputAt[d.id]
                 && (Date.now() - lastLocalInputAt[d.id] < 800);
-      if (typing) return;
+      if (typing && !d.force) return;
       // Preserve cursor position if the user has focus but isn't typing.
       if (document.activeElement === el && window.getSelection) {
         try {
@@ -3844,6 +4157,17 @@ export function buildIframeScript() {
         }
       } else {
         el.textContent = d.text;
+      }
+    }
+
+    if (d.cmd === 'set-form-control') {
+      var control = document.querySelector('[data-block-id="' + d.id + '"]');
+      var value = d.control || {};
+      if (!control) return;
+      if (control.tagName === 'INPUT') { control.value = value.value || ''; control.checked = !!value.checked; }
+      else if (control.tagName === 'TEXTAREA') { control.value = value.value || ''; control.textContent = value.value || ''; }
+      else if (control.tagName === 'SELECT') {
+        for (var si = 0; si < control.options.length; si++) control.options[si].selected = (value.selected || []).indexOf(si) >= 0;
       }
     }
 
@@ -3960,6 +4284,13 @@ export function buildIframeScript() {
       // cover built for the current mode — without it the embed iframe eats
       // clicks and can't be selected, edited or deleted.
       if (typeof refreshVideoState === 'function') refreshVideoState();
+      if (tableCtlReshow) {
+        var insertedTable = anchor.closest && anchor.closest('table[data-block-id]');
+        if (insertedTable && insertedTable.getAttribute('data-block-id') === tableCtlReshow) {
+          tableCtlReshow = null;
+          showTableControls(insertedTable);
+        }
+      }
     }
 
     // Append a fresh block INSIDE a container (card / section) — used when "+"
@@ -4023,7 +4354,7 @@ export function buildIframeScript() {
     add_image:{en:'Image',zh:'图片'}, add_video:{en:'Video',zh:'视频'}, add_audio:{en:'Audio',zh:'音频'}, add_media:{en:'Image / Video',zh:'图片 / 视频'}, add_table:{en:'Table',zh:'表格'}, add_link:{en:'Link',zh:'链接'}, tb_crop:{en:'Crop',zh:'裁切'},
     media_pick_local:{en:'Choose local file',zh:'选择本地文件'}, media_or:{en:'or',zh:'或'},
     link_text_ph:{en:'Display text (optional)',zh:'显示文字（可留空）'}, link_url_ph:{en:'Paste URL…',zh:'粘贴网址…'}, link_click_to_set:{en:'Click to set link',zh:'点击设置链接'},
-    err_img_read:{en:'Could not read as image',zh:'无法读取为图片'}, err_file_large:{en:'File is large. Consider using a pasted URL.',zh:'文件较大，建议用「粘贴链接」'}, err_video_large:{en:'Video is large. Consider using a pasted URL.',zh:'视频较大，建议用「粘贴链接」'},
+    err_img_read:{en:'Could not read as image',zh:'无法读取为图片'}, err_image_source_large:{en:'This photo is over 64 MB. Resize it first or use a hosted image link.',zh:'这张照片超过 64 MB，请先缩小图片或使用网络图片链接'}, err_file_large:{en:'File is large. Consider using a pasted URL.',zh:'文件较大，建议用「粘贴链接」'}, err_video_large:{en:'Video is large. Consider using a pasted URL.',zh:'视频较大，建议用「粘贴链接」'},
     crop_hint:{en:'Drag the image to reposition',zh:'拖动图片调整裁切位置'}, crop_done:{en:'Done',zh:'完成'}, crop_cancel:{en:'Cancel',zh:'取消'},
     tb_style_t:{en:'Style (color, size, weight, align)',zh:'样式（颜色·字号·粗细·对齐）'},
     tb_row:{en:'Row',zh:'行'}, tb_col:{en:'Col',zh:'列'},
@@ -4123,15 +4454,23 @@ export function buildIframeScript() {
   var STYLE_HISTORY_LIMIT = 100;
 
   function captureStyleSnap(el) {
-    var snap = [{ el: el, css: el.style.cssText }];
-    el.querySelectorAll('*').forEach(function(c) {
-      snap.push({ el: c, css: c.style.cssText });
+    var rootId = el.getAttribute('data-block-id');
+    var snap = [{ id: rootId, path: '', el: el, css: el.style.cssText }];
+    var descendants = el.querySelectorAll('*');
+    descendants.forEach(function(c, path) {
+      snap.push({ id: c.getAttribute('data-block-id'), rootId: rootId, path: path, el: c, css: c.style.cssText });
     });
     return snap;
   }
   function applyStyleSnap(snap) {
     snap.forEach(function(s) {
-      if (s.el && s.el.style) s.el.style.cssText = s.css;
+      var current = s.id ? document.querySelector('[data-block-id="' + s.id + '"]') : null;
+      if (!current && s.rootId && s.path >= 0) {
+        var root = document.querySelector('[data-block-id="' + s.rootId + '"]');
+        current = root && root.querySelectorAll('*')[s.path];
+      }
+      if (!current) current = s.el;
+      if (current && current.style) { current.style.cssText = s.css; s.el = current; }
     });
   }
   // ─── Make resize & crop undoable ───
@@ -4142,7 +4481,7 @@ export function buildIframeScript() {
   // before/after snapshot into the SAME styleHistory the style panel uses.
   function hceSnapList(els) {
     var out = [];
-    for (var i = 0; i < els.length; i++) { var el = els[i]; if (el && el.style) out.push({ el: el, css: el.style.cssText }); }
+    for (var i = 0; i < els.length; i++) { var el = els[i]; if (el && el.style) out.push({ id: el.getAttribute('data-block-id'), el: el, css: el.style.cssText }); }
     return out;
   }
   function hceListsDiffer(a, b) {
@@ -4162,8 +4501,14 @@ export function buildIframeScript() {
     var out = [];
     snap.forEach(function(s) {
       if (s.el && s.el.getAttribute) {
-        var id = s.el.getAttribute('data-block-id');
-        if (id) out.push({ id: id, style: s.el.style.cssText });
+        var id = s.id || s.el.getAttribute('data-block-id');
+        var current = id ? document.querySelector('[data-block-id="' + id + '"]') : null;
+        if (!current && s.rootId && s.path >= 0) {
+          var root = document.querySelector('[data-block-id="' + s.rootId + '"]');
+          current = root && root.querySelectorAll('*')[s.path];
+        }
+        if (!current) current = s.el;
+        if (id && current) { s.el = current; out.push({ id: id, style: current.style.cssText }); }
       }
     });
     return out;
@@ -4183,6 +4528,11 @@ export function buildIframeScript() {
     if (commitDebounceTimer) { clearTimeout(commitDebounceTimer); commitDebounceTimer = null; }
     if (!preChangeSnap || !preChangeTarget) return;
     var after = captureStyleSnap(preChangeTarget);
+    if (!hceListsDiffer(preChangeSnap, after)) {
+      preChangeSnap = null;
+      preChangeTarget = null;
+      return;
+    }
     // 截掉 redo 路径
     styleHistory.length = styleHistoryPtr + 1;
     styleHistory.push({ before: preChangeSnap, after: after });
@@ -4218,11 +4568,20 @@ export function buildIframeScript() {
   // chronological undo log because it's the only place that sees every kind
   // of action (text / structural / comment / style). The parent decides
   // whether to call its own collab.undo() or to send us an undo-style cmd.
+  var lastHistoryForwardAt = 0;
+  var lastHistoryForwardKind = '';
   function forwardUndo(isRedo) {
+    // Flush content/style before the undo message. Window messaging preserves
+    // order, so the parent records the latest action before it pops history.
+    flushPendingInputs();
+    commitStyleChange();
     for (var k in lastLocalInputAt) delete lastLocalInputAt[k];
-    window.parent.postMessage({
-      type: isRedo ? 'request-redo' : 'request-undo'
-    }, '*');
+    var now = Date.now();
+    var kind = isRedo ? 'redo' : 'undo';
+    if (kind === lastHistoryForwardKind && now - lastHistoryForwardAt < 40) return;
+    lastHistoryForwardAt = now;
+    lastHistoryForwardKind = kind;
+    window.parent.postMessage({ type: isRedo ? 'request-redo' : 'request-undo' }, '*');
   }
   document.addEventListener('keydown', function(e) {
     var meta = e.metaKey || e.ctrlKey;
@@ -5222,7 +5581,18 @@ export function buildIframeScript() {
 
   // ─── 主初始化（必须先跑，不能被 style panel 影响） ───
   applyMode('edit');
-  window.parent.postMessage({ type: 'ready' }, '*');
+  function announceReady() { window.parent.postMessage({ type: 'ready' }, '*'); }
+  // Wait briefly for webfonts before revealing the document. This avoids a
+  // fallback-font frame followed by a visible reflow, and prevents resize tools
+  // from measuring text before its intended font is ready.
+  if (document.fonts && document.fonts.ready) {
+    var fontWaitDone = false;
+    var finishFontWait = function () { if (fontWaitDone) return; fontWaitDone = true; announceReady(); };
+    document.fonts.ready.then(finishFontWait, finishFontWait);
+    setTimeout(finishFontWait, 1500);
+  } else {
+    announceReady();
+  }
 
   // 现在再绑 style panel 的全局事件
   __hceInitStylePanel();
